@@ -24,4 +24,5 @@ Planning scaffold only. No engine code exists yet.
 - `open-board`: board/card/piece MVP, already implemented.
 - `openadvance`: turn-based tactics engine scaffold.
 - `opencompany`: company/economy simulation engine scaffold.
+- `openpuzzle`: puzzle/casual engine scaffold.
 - `openrts`: deterministic RTS engine scaffold.
