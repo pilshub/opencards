@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "0.1.0",
+  "game": "ember-duel",
+  "format": "starter",
+  "players": 2,
+  "decks": [
+    {
+      "id": "ember-starter",
+      "cards": [
+        { "kind": "spark-adept", "copies": 4 },
+        { "kind": "ember-guard", "copies": 4 },
+        { "kind": "flare-strike", "copies": 4 }
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "kind": "spark-adept",
+      "name": "Spark Adept",
+      "type": "unit",
+      "cost": { "energy": 1 },
+      "stats": { "attack": 1, "health": 2 },
+      "effects": []
+    },
+    {
+      "kind": "ember-guard",
+      "name": "Ember Guard",
+      "type": "unit",
+      "cost": { "energy": 2 },
+      "stats": { "attack": 2, "health": 3 },
+      "effects": []
+    },
+    {
+      "kind": "flare-strike",
+      "name": "Flare Strike",
+      "type": "tactic",
+      "cost": { "energy": 1 },
+      "effects": [
+        { "op": "dealDamage", "amount": 2, "target": "enemyUnitOrBase" }
+      ]
+    }
+  ]
+}

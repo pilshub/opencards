@@ -1,0 +1,10 @@
+{
+  "name": "opencards",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Planning repo for an open deterministic card-game engine and editor.",
+  "scripts": {
+    "check": "node -e \"console.log('OpenCards is a planning scaffold. Implement packages before enabling checks.')\""
+  }
+}
