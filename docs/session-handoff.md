@@ -22,5 +22,6 @@ Planning scaffold only. No engine code exists yet.
 ## Sibling Repos
 
 - `open-board`: board/card/piece MVP, already implemented.
+- `openadvance`: turn-based tactics engine scaffold.
 - `opencompany`: company/economy simulation engine scaffold.
 - `openrts`: deterministic RTS engine scaffold.
