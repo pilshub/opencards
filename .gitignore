@@ -9,3 +9,7 @@ outputs/
 *.log
 .DS_Store
 Thumbs.db
+.vitest-cache/
+*.tsbuildinfo
+.eslintcache
+.codex-*-prompt.txt

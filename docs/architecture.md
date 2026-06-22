@@ -65,16 +65,7 @@ Events are the source for animations, replay, logs and analytics.
 
 ## Effect DSL
 
-Start narrow. The first effect operations should be enough for Ember Duel:
-
-- `gainResource`
-- `drawCards`
-- `dealDamage`
-- `heal`
-- `summonUnit`
-- `moveCard`
-- `addCounter`
-- `modifyStatUntilEndOfTurn`
+Start narrow. ADR-0002 (`docs/adr/0002-effect-dsl-v1.md`) is the single source of truth for the Effect DSL v1 operation list.
 
 Do not build a universal rules language first. Add operations only when a real card needs them.
 

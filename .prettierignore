@@ -1,0 +1,6 @@
+node_modules/
+dist/
+coverage/
+**/*.snap
+**/*.tsbuildinfo
+package-lock.json

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "0.1.0",
+  "seed": 42,
+  "setupOpts": {
+    "seed": 42,
+    "players": ["p1", "p2"],
+    "deckSize": 12,
+    "openingHandSize": 0,
+    "cardKinds": ["unit-a", "unit-b", "unit-c", "tactic-a"]
+  },
+  "commands": [
+    {
+      "type": "drawCard",
+      "player": "p1"
+    },
+    {
+      "type": "drawCard",
+      "player": "p2"
+    },
+    {
+      "type": "drawCard",
+      "player": "p1"
+    }
+  ],
+  "finalStateHash": "df7454f8fbd9ef233f8464fea71ce9bb56f6400ecf09a0c12a27307108efae48"
+}

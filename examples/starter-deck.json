@@ -35,9 +35,7 @@
       "name": "Flare Strike",
       "type": "tactic",
       "cost": { "energy": 1 },
-      "effects": [
-        { "op": "dealDamage", "amount": 2, "target": "enemyUnitOrBase" }
-      ]
+      "effects": [{ "op": "dealDamage", "amount": 2, "target": "enemyUnitOrBase" }]
     }
   ]
 }

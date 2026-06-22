@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/schema" },
+    { "path": "./packages/effects" },
+    { "path": "./packages/simulator" },
+    { "path": "./packages/app" }
+  ]
+}

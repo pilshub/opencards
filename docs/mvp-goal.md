@@ -2,7 +2,7 @@
 
 ## Objective
 
-Build a focused card-game engine MVP that proves Codex can define cards, validate decks, simulate a full match, replay it deterministically and expose a basic browser editor/player.
+Build a focused card-game engine MVP that proves an author can define cards, validate decks, simulate a full match, replay it deterministically and expose a basic browser editor/player.
 
 ## Acceptance Criteria
 

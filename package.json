@@ -3,8 +3,55 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Planning repo for an open deterministic card-game engine and editor.",
+  "description": "Deterministic card-game engine, editor and simulator.",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "workspaces": [
+    "packages/core",
+    "packages/schema",
+    "packages/effects",
+    "packages/simulator",
+    "packages/app"
+  ],
   "scripts": {
-    "check": "node -e \"console.log('OpenCards is a planning scaffold. Implement packages before enabling checks.')\""
+    "typecheck": "tsc -b",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev": "echo 'Phase 5 wires Vite dev server' && exit 0",
+    "build:app": "npm run build --workspace=@opencards/core && npm run build:web --workspace=@opencards/app",
+    "test": "npm run --workspaces --if-present test",
+    "test:watch": "vitest",
+    "verify:replay": "node scripts/verify-replay.mjs",
+    "verify:hidden-info": "node scripts/verify-hidden-info.mjs",
+    "verify:coverage-overall": "node scripts/check-overall-coverage.mjs",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run verify:coverage-overall && npm run verify:replay && npm run verify:hidden-info",
+    "verify:mvp": "echo 'verify:mvp is not implemented until Phase 7 — use npm run check for the Phase 0 gate. See docs/roadmap.md and docs/adr/0004-dev-system-phase-0-deferrals-and-runner.md' && exit 1",
+    "prepare": "husky || true"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "^2.1.5",
+    "eslint": "^9.14.0",
+    "eslint-config-prettier": "^9.1.0",
+    "fast-check": "^3.23.1",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.13.0",
+    "vitest": "^2.1.5"
   }
 }

@@ -1,6 +1,6 @@
 # OpenCards
 
-OpenCards is the card-game member of the Open* engine family. It is planned as a deterministic engine, editor and simulator for games where cards are the primary object: duels, deckbuilders, drafting games, trick-taking games, expandable card games and card-driven board games.
+OpenCards is the card-game member of the Open\* engine family. It is planned as a deterministic engine, editor and simulator for games where cards are the primary object: duels, deckbuilders, drafting games, trick-taking games, expandable card games and card-driven board games.
 
 OpenBoard already proves the shared pattern: commands, events, deterministic replay, declarative data, browser demo and editor-first workflows. OpenCards should go deeper on cards than OpenBoard does.
 
@@ -65,6 +65,20 @@ Different emphasis:
 
 - OpenBoard: spatial board/card/piece games.
 - OpenCards: timing, zones, deck legality, card text and effect systems.
+
+## Development Status
+
+The current quality gate is `npm run check`; see [dev-system](docs/dev-system.md) and [ADR-0004](docs/adr/0004-dev-system-phase-0-deferrals-and-runner.md).
+Phase 1 wires: typecheck, lint, format:check, test (per package via the Windows-safe runner from ADR-0003), verify:coverage-overall, verify:replay, verify:hidden-info.
+`verify:mvp` remains deferred to Phase 7.
+Live demo deploys from packages/app via Vercel; see README's Deploy section.
+
+## Deploy
+
+- Repo root is the Vercel project root.
+- Build command: `npm run build:app`.
+- Output: `packages/app/dist-web`.
+- Node version: 22.6+ (matches engines.node).
 
 ## First Demo Candidate
 

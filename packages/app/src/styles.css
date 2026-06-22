@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --oc-accent: #f97316;
+  --oc-accent-soft: rgba(249, 115, 22, 0.18);
+  --oc-border: rgba(244, 244, 245, 0.16);
+}
+
+body {
+  min-width: 320px;
+}
