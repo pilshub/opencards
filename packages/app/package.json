@@ -18,7 +18,8 @@
     "test": "node --experimental-strip-types ../../scripts/run-vitest-package.mjs"
   },
   "dependencies": {
-    "@opencards/core": "*"
+    "@opencards/core": "*",
+    "framer-motion": "^11.11.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",

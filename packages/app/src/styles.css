@@ -11,3 +11,64 @@
 body {
   min-width: 320px;
 }
+
+.oc-card-shell {
+  height: 11.25rem;
+  width: 7.5rem;
+  border-radius: 0.75rem;
+  transform-style: preserve-3d;
+}
+
+.oc-spark {
+  animation: oc-spark-burst 650ms ease-out forwards;
+  color: #fde68a;
+  font-size: 0.8rem;
+  font-weight: 800;
+  left: 50%;
+  line-height: 1;
+  opacity: 0;
+  position: absolute;
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+  top: 45%;
+}
+
+.oc-spark-1 {
+  --oc-spark-x: -22px;
+  --oc-spark-y: -28px;
+}
+
+.oc-spark-2 {
+  --oc-spark-x: 18px;
+  --oc-spark-y: -24px;
+}
+
+.oc-spark-3 {
+  --oc-spark-x: -10px;
+  --oc-spark-y: -38px;
+}
+
+.oc-spark-4 {
+  --oc-spark-x: 26px;
+  --oc-spark-y: -10px;
+}
+
+.oc-spark-5 {
+  --oc-spark-x: -28px;
+  --oc-spark-y: -8px;
+}
+
+@keyframes oc-spark-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.65);
+  }
+
+  20% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--oc-spark-x)), calc(-50% + var(--oc-spark-y))) scale(1.15);
+  }
+}

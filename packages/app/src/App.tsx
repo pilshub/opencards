@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { LayoutGroup, motion } from 'framer-motion';
 import type {
   CardKind,
   Command,
@@ -11,6 +12,7 @@ import type {
   ViewerHandle,
 } from '@opencards/core';
 import { applyCommand, hashState, replayEnvelope, startMatch, viewMatch } from '@opencards/core';
+import { Card } from './components/Card.js';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -492,15 +494,46 @@ function PlayerColumn({
   const isActive = player === activePlayer;
   const canDraw = view.viewer.deck.length > 0;
   const commandCount = commands.filter((command) => command.player === player).length;
+  const [sparkBurstKey, setSparkBurstKey] = useState<number | null>(null);
+  const previousCommandCount = useRef(commandCount);
+
+  useEffect(() => {
+    if (commandCount > previousCommandCount.current) {
+      const burstKey = Date.now();
+      setSparkBurstKey(burstKey);
+      const timeoutId = window.setTimeout(() => setSparkBurstKey(null), 650);
+      previousCommandCount.current = commandCount;
+
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    previousCommandCount.current = commandCount;
+    return undefined;
+  }, [commandCount]);
 
   return (
-    <article
-      className={`rounded border bg-zinc-900 p-4 ${
+    <motion.article
+      animate={
         isActive
-          ? 'border-[color:var(--oc-accent)] shadow-[0_0_0_1px_var(--oc-accent)]'
-          : 'border-[color:var(--oc-border)]'
+          ? {
+              borderColor: ['rgba(245, 158, 11, 0.45)', 'rgba(249, 115, 22, 0.9)'],
+              boxShadow: [
+                '0 0 0 1px rgba(245, 158, 11, 0.24), 0 0 18px rgba(245, 158, 11, 0.12)',
+                '0 0 0 1px rgba(249, 115, 22, 0.48), 0 0 28px rgba(249, 115, 22, 0.24)',
+              ],
+            }
+          : { borderColor: 'rgba(244, 244, 245, 0.16)', boxShadow: '0 0 0 rgba(0, 0, 0, 0)' }
+      }
+      className={`rounded border bg-zinc-900/95 p-4 ${
+        isActive ? 'border-[color:var(--oc-accent)]' : 'border-[color:var(--oc-border)]'
       }`}
+      data-active={isActive ? 'true' : 'false'}
       data-testid={`player-${player}`}
+      transition={
+        isActive
+          ? { duration: 1.5, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }
+          : { duration: 0.2 }
+      }
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -525,37 +558,61 @@ function PlayerColumn({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ZoneBlock title="Own hand" count={view.viewer.hand.length}>
-          <ul className="grid gap-2" data-testid={`own-hand-${player}`}>
-            {view.viewer.hand.map((card) => (
-              <li
-                className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2 text-sm"
-                data-testid={`own-card-${player}`}
-                key={card.id}
-              >
-                <CardKindMark kind={card.kind} />
-              </li>
-            ))}
-          </ul>
+          <LayoutGroup id={`hand-${player}`}>
+            <ul
+              className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,7.5rem))] justify-center gap-3"
+              data-testid={`own-hand-${player}`}
+            >
+              {view.viewer.hand.map((card) => (
+                <motion.li
+                  className="list-none"
+                  data-testid={`own-card-${player}`}
+                  key={card.id}
+                  layout
+                  layoutId={card.id}
+                  initial={{ opacity: 0, x: 72, y: -44, scale: 0.78, rotate: 7 }}
+                  animate={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+                >
+                  <Card kind={card.kind} />
+                </motion.li>
+              ))}
+            </ul>
+          </LayoutGroup>
         </ZoneBlock>
 
         <ZoneBlock title={`${opponent} hand`} count={opponentView.hand.length}>
-          <ul className="grid gap-2 opacity-70" data-testid={`opponent-${opponent}`}>
-            {opponentView.hand.map((_card, index) => (
-              <li
-                aria-label={`Hidden card ${index + 1}`}
-                className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-center text-sm text-zinc-400"
-                data-testid={`opponent-card-${index}`}
-                key={index}
-              >
-                ?
-              </li>
-            ))}
-          </ul>
+          <LayoutGroup id={`opponent-hand-${player}-${opponent}`}>
+            <ul
+              className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,7.5rem))] justify-center gap-3 opacity-80"
+              data-testid={`opponent-${opponent}`}
+            >
+              {opponentView.hand.map((_card, index) => (
+                <motion.li
+                  aria-label={`Hidden card ${index + 1}`}
+                  className="list-none"
+                  data-testid={`opponent-card-${index}`}
+                  key={index}
+                  layout
+                  layoutId={`opp-${player}-${opponent}-${index}`}
+                >
+                  <Card masked />
+                </motion.li>
+              ))}
+            </ul>
+          </LayoutGroup>
         </ZoneBlock>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-        <CountBadge label="Deck" testId={`deck-count-${player}`} value={view.viewer.deck.length} />
+        <div className="relative">
+          <CountBadge
+            label="Deck"
+            testId={`deck-count-${player}`}
+            value={view.viewer.deck.length}
+          />
+          {sparkBurstKey ? <SparkBurst key={sparkBurstKey} /> : null}
+        </div>
         <CountBadge label="Discard" value={view.viewer.discard.length} />
         <CountBadge label="Exile" value={view.viewer.exile.length} />
         <CountBadge label="Battlefield" value={view.viewer.battlefield.length} />
@@ -574,34 +631,8 @@ function PlayerColumn({
           ))}
         </div>
       ) : null}
-    </article>
+    </motion.article>
   );
-}
-
-function CardKindMark({ kind }: { readonly kind: CardKind }): JSX.Element {
-  const style = kindStyle(kind);
-
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span
-        className={`inline-flex h-3 w-3 items-center justify-center rounded-sm text-[8px] font-bold leading-none text-white ${style.color}`}
-        aria-hidden="true"
-      >
-        {style.glyph}
-      </span>
-      <span>{labelCardKind(kind)}</span>
-    </span>
-  );
-}
-
-function kindStyle(kind: CardKind): { readonly glyph: string; readonly color: string } {
-  const styles: Partial<Record<CardKind, { readonly glyph: string; readonly color: string }>> = {
-    'spark-adept': { glyph: 'S', color: 'bg-amber-500' },
-    'ember-guard': { glyph: 'E', color: 'bg-orange-500' },
-    'flare-strike': { glyph: 'F', color: 'bg-red-600' },
-  };
-
-  return styles[kind] ?? { glyph: '?', color: 'bg-zinc-500' };
 }
 
 function ZoneBlock({
@@ -621,6 +652,18 @@ function ZoneBlock({
       </div>
       {children}
     </section>
+  );
+}
+
+function SparkBurst(): JSX.Element {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-visible">
+      {[0, 1, 2, 3, 4].map((index) => (
+        <span className={`oc-spark oc-spark-${index + 1}`} key={index}>
+          {index % 2 === 0 ? '*' : '+'}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -808,13 +851,6 @@ function isShortcutTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     target.isContentEditable
   );
-}
-
-function labelCardKind(kind: CardKind): string {
-  return kind
-    .split('-')
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ');
 }
 
 function shortHash(hash: string): string {

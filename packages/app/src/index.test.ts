@@ -9,6 +9,7 @@ import type { AppProps } from './App.js';
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
 const cardKinds: readonly CardKind[] = ['spark-adept', 'ember-guard', 'flare-strike'];
+const cardLabels = ['Spark Adept', 'Ember Guard', 'Flare Strike'] as const;
 const setupOpts: SetupOpts = {
   seed: 42,
   players: [p1, p2],
@@ -94,8 +95,46 @@ describe('@opencards/app Ember Duel demo', () => {
     const p1OpponentEntries = p1OpponentZone.querySelectorAll('[data-testid^="opponent-card-"]');
     expect(p1OpponentEntries.length).toBeGreaterThan(0);
     for (const entry of p1OpponentEntries) {
-      expect(entry.textContent?.trim()).toBe('?');
+      for (const kind of cardKinds) {
+        expect(entry.textContent).not.toContain(kind);
+      }
+      for (const label of cardLabels) {
+        expect(entry.textContent).not.toContain(label);
+      }
     }
+  });
+
+  it('card front shows kind label for own hand', () => {
+    render(createElement(App));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const firstOwnCard = within(screen.getByTestId('player-p1')).getAllByTestId('own-card-p1')[0]!;
+    expect(cardLabels.some((label) => firstOwnCard.textContent?.includes(label))).toBe(true);
+  });
+
+  it('card back has no kind text for opponent', () => {
+    render(createElement(App));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const opponentCard = within(screen.getByTestId('player-p1')).getAllByTestId(
+      'opponent-card-0',
+    )[0]!;
+    for (const kind of cardKinds) {
+      expect(opponentCard.textContent).not.toContain(kind);
+    }
+    for (const label of cardLabels) {
+      expect(opponentCard.textContent).not.toContain(label);
+    }
+  });
+
+  it('active player column has glow indicator', () => {
+    render(createElement(App));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    expect(screen.getByTestId('player-p1').getAttribute('data-active')).toBe('true');
   });
 
   it('verifies replay envelope JSON without exposing raw state', () => {

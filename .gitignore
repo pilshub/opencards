@@ -13,3 +13,5 @@ Thumbs.db
 *.tsbuildinfo
 .eslintcache
 .codex-*-prompt.txt
+
+.vercel
