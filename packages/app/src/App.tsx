@@ -14,8 +14,9 @@ import type {
 import { applyCommand, hashState, replayEnvelope, startMatch, viewMatch } from '@opencards/core';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
+import { FormatEditor } from './components/FormatEditor.js';
 
-type AppView = 'play' | 'create';
+type AppView = 'play' | 'create' | 'rules';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -289,6 +290,18 @@ export default function App({
               >
                 Create
               </button>
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                  appView === 'rules'
+                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                    : 'text-zinc-300 hover:bg-zinc-800'
+                }`}
+                data-testid="nav-rules"
+                type="button"
+                onClick={() => setAppView('rules')}
+              >
+                Rules
+              </button>
             </nav>
             <div
               className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
@@ -301,6 +314,8 @@ export default function App({
         </header>
 
         {appView === 'create' ? <CardCreator /> : null}
+
+        {appView === 'rules' ? <FormatEditor /> : null}
 
         {appView === 'play' ? (
           <>

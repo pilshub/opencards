@@ -688,6 +688,103 @@ describe('@opencards/app Ember Duel demo', () => {
 });
 
 const LS_KEY = 'opencards.customCards';
+const FORMAT_LS_KEY = 'opencards.format';
+
+describe('@opencards/app Format Editor', () => {
+  afterEach(() => {
+    localStorage.removeItem(FORMAT_LS_KEY);
+  });
+
+  it('nav-rules shows format-editor; nav-play returns to the board (New Game visible)', () => {
+    render(createElement(App));
+
+    expect(screen.queryByTestId('format-editor')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-rules'));
+    expect(screen.getByTestId('format-editor')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-play'));
+    expect(screen.getByRole('button', { name: 'New Game' })).toBeTruthy();
+    expect(screen.queryByTestId('format-editor')).toBeNull();
+  });
+
+  it('editing Deck size to 0 shows format-issues and disables save-format', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-rules'));
+
+    const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
+    fireEvent.change(deckSizeInput, { target: { value: '0' } });
+
+    expect(screen.getByTestId('format-issues')).toBeTruthy();
+    expect(screen.queryByTestId('format-valid')).toBeNull();
+    expect(screen.getByTestId('save-format')).toHaveProperty('disabled', true);
+  });
+
+  it('valid format shows format-valid, enables save-format; Save writes to localStorage', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-rules'));
+
+    // Change deck size to a different valid value
+    const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
+    fireEvent.change(deckSizeInput, { target: { value: '20' } });
+
+    expect(screen.getByTestId('format-valid')).toBeTruthy();
+    expect(screen.queryByTestId('format-issues')).toBeNull();
+
+    const saveBtn = screen.getByTestId('save-format');
+    expect(saveBtn).toHaveProperty('disabled', false);
+
+    fireEvent.click(saveBtn);
+
+    const stored = JSON.parse(localStorage.getItem(FORMAT_LS_KEY) ?? 'null') as {
+      deckSize: number;
+    };
+    expect(stored).not.toBeNull();
+    expect(stored.deckSize).toBe(20);
+  });
+
+  it('on mount a pre-seeded valid localStorage format populates the fields', () => {
+    const seeded = {
+      name: 'Custom Format',
+      deckSize: 30,
+      openingHandSize: 7,
+      copyLimit: 2,
+      baseTotal: 25,
+      startingEnergy: 1,
+    };
+    localStorage.setItem(FORMAT_LS_KEY, JSON.stringify(seeded));
+
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-rules'));
+
+    const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
+    expect(deckSizeInput.value).toBe('30');
+  });
+
+  it('corrupt localStorage format falls back to defaults without crashing', () => {
+    localStorage.setItem(FORMAT_LS_KEY, '{bad json]]]');
+
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-rules'));
+
+    // Should render without crashing and show default deck size
+    const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
+    expect(Number(deckSizeInput.value)).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('format-editor')).toBeTruthy();
+  });
+
+  it('invalid saved format falls back to defaults without crashing', () => {
+    localStorage.setItem(FORMAT_LS_KEY, JSON.stringify({ deckSize: -99, name: '' }));
+
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-rules'));
+
+    const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
+    // Should have fallen back to DEFAULT_FORMAT deckSize (12)
+    expect(Number(deckSizeInput.value)).toBe(12);
+  });
+});
 
 describe('@opencards/app Card Creator', () => {
   afterEach(() => {

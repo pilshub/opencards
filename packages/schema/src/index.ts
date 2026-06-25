@@ -30,6 +30,14 @@ export const ISSUE_CODES = Object.freeze({
   UNEXPECTED_STATS: 'OC-0011',
   /** effect amount present but not an integer >= 0 */
   INVALID_EFFECT_AMOUNT: 'OC-0012',
+  /** openingHandSize not an integer in [0, deckSize] */
+  INVALID_OPENING_HAND: 'OC-0013',
+  /** copyLimit not an integer >= 1 */
+  INVALID_COPY_LIMIT: 'OC-0014',
+  /** baseTotal not an integer >= 1 */
+  INVALID_BASE_TOTAL: 'OC-0015',
+  /** startingEnergy not an integer >= 0 */
+  INVALID_STARTING_ENERGY: 'OC-0016',
 } as const);
 
 /** Stable validator issue code emitted by schema checks. */
@@ -52,3 +60,9 @@ export {
   validateCardDefinition,
   validateCardDatabase,
 } from './card-definition.js';
+/** GameFormat type describing the rules/settings of a game format. */
+export type { GameFormat } from './format.js';
+/** Default frozen GameFormat value (Ember Duel). */
+export { DEFAULT_FORMAT } from './format.js';
+/** Validate an unknown value as a GameFormat. Collects all issues, never throws. */
+export { validateFormat } from './format.js';
