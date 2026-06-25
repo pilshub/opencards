@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@opencards/core": "*",
+    "@opencards/effects": "*",
+    "@opencards/schema": "*",
     "framer-motion": "^11.11.0"
   },
   "devDependencies": {

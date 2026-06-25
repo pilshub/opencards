@@ -13,6 +13,9 @@ import type {
 } from '@opencards/core';
 import { applyCommand, hashState, replayEnvelope, startMatch, viewMatch } from '@opencards/core';
 import { Card } from './components/Card.js';
+import { CardCreator } from './components/CardCreator.js';
+
+type AppView = 'play' | 'create';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -55,6 +58,7 @@ export default function App({
   defaultSetup = buildSetup,
   matchLogLimit,
 }: AppProps = {}): JSX.Element {
+  const [appView, setAppView] = useState<AppView>('play');
   const [seed, setSeed] = useState(42);
   const [match, setMatch] = useState<MatchState | null>(null);
   const [viewer, setViewer] = useState<PlayerId>(p1);
@@ -259,166 +263,200 @@ export default function App({
               Hot-seat facade demo using projected player views.
             </p>
           </div>
-          <div
-            className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
-            title={currentHash}
-          >
-            <span className="mr-2 text-zinc-500">hash</span>
-            <span data-testid="state-hash">{shortHash(currentHash)}</span>
+          <div className="flex items-center gap-3">
+            <nav className="flex rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1">
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                  appView === 'play'
+                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                    : 'text-zinc-300 hover:bg-zinc-800'
+                }`}
+                data-testid="nav-play"
+                type="button"
+                onClick={() => setAppView('play')}
+              >
+                Play
+              </button>
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                  appView === 'create'
+                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                    : 'text-zinc-300 hover:bg-zinc-800'
+                }`}
+                data-testid="nav-create"
+                type="button"
+                onClick={() => setAppView('create')}
+              >
+                Create
+              </button>
+            </nav>
+            <div
+              className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
+              title={currentHash}
+            >
+              <span className="mr-2 text-zinc-500">hash</span>
+              <span data-testid="state-hash">{shortHash(currentHash)}</span>
+            </div>
           </div>
         </header>
 
-        <section className="flex flex-col gap-3 rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-4 sm:flex-row sm:items-end">
-          <div className="flex flex-col gap-1">
-            <label className="flex max-w-36 flex-col gap-1 text-sm text-zinc-300">
-              Seed
-              <input
-                className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2 text-zinc-100"
-                type="number"
-                value={seed}
-                onChange={(event) => setSeed(Number(event.currentTarget.value))}
-              />
-            </label>
-            <p className="text-xs text-zinc-400">Live seed (next New Game): {seed}</p>
-            {match ? (
-              <p className="text-xs text-zinc-300" data-testid="match-seed">
-                Match seed (active): {match.seed}
-              </p>
-            ) : null}
-          </div>
-          <button
-            className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
-            type="button"
-            onClick={startNewGame}
-          >
-            New Game
-          </button>
-          <button
-            className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
-            data-testid="reset-game"
-            type="button"
-            onClick={resetGame}
-          >
-            Reset
-          </button>
-          {match ? (
-            <button
-              className="rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-4 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-500/25"
-              type="button"
-              onClick={exportEnvelope}
-            >
-              Export envelope
-            </button>
-          ) : null}
-          <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
-        </section>
+        {appView === 'create' ? <CardCreator /> : null}
 
-        {exportedEnvelope ? (
-          <section className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-4">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Exported replay envelope</h2>
-                <p className="text-sm text-zinc-400">
-                  finalStateHash is computed by replaying through the public facade.
-                </p>
+        {appView === 'play' ? (
+          <>
+            <section className="flex flex-col gap-3 rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-4 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-1">
+                <label className="flex max-w-36 flex-col gap-1 text-sm text-zinc-300">
+                  Seed
+                  <input
+                    className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2 text-zinc-100"
+                    type="number"
+                    value={seed}
+                    onChange={(event) => setSeed(Number(event.currentTarget.value))}
+                  />
+                </label>
+                <p className="text-xs text-zinc-400">Live seed (next New Game): {seed}</p>
+                {match ? (
+                  <p className="text-xs text-zinc-300" data-testid="match-seed">
+                    Match seed (active): {match.seed}
+                  </p>
+                ) : null}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
-                  type="button"
-                  onClick={() => void copyEnvelope()}
-                >
-                  Copy
-                </button>
-                <button
-                  className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
-                  data-testid="clear-export"
-                  type="button"
-                  onClick={clearExportedEnvelope}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            {exportMeta ? (
-              <p className="mb-2 text-xs text-zinc-400" data-testid="export-meta">
-                {`Exported: ${exportMeta.timestamp} \u00b7 ${exportMeta.commandCount} commands \u00b7 seed ${exportMeta.seed}`}
-              </p>
-            ) : null}
-            <textarea
-              className="min-h-48 w-full rounded border border-[color:var(--oc-border)] bg-zinc-950 p-3 font-mono text-sm text-zinc-100"
-              data-testid="export-envelope"
-              ref={exportedEnvelopeRef}
-              readOnly
-              value={exportedEnvelope}
-            />
-            {copyStatus === 'copied' ? (
-              <p className="mt-2 text-sm text-emerald-200" data-testid="copy-status">
-                Copied
-              </p>
-            ) : null}
-            {copyStatus === 'failed' ? (
-              <p className="mt-2 text-sm text-red-200" data-testid="copy-status">
-                Select all + Ctrl+C to copy
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section>
-          {match ? (
-            <div className="flex flex-col gap-3">
-              <div
-                className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
-                data-testid="perspective-toggle"
+              <button
+                className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
+                type="button"
+                onClick={startNewGame}
               >
-                {players.map((player) => (
-                  <button
-                    className={`rounded px-3 py-2 text-sm font-semibold ${
-                      viewer === player
-                        ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                    data-testid={`view-as-${player}`}
-                    key={player}
-                    type="button"
-                    onClick={() => setViewer(player)}
+                New Game
+              </button>
+              <button
+                className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                data-testid="reset-game"
+                type="button"
+                onClick={resetGame}
+              >
+                Reset
+              </button>
+              {match ? (
+                <button
+                  className="rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-4 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-500/25"
+                  type="button"
+                  onClick={exportEnvelope}
+                >
+                  Export envelope
+                </button>
+              ) : null}
+              <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
+            </section>
+
+            {exportedEnvelope ? (
+              <section className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-4">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">Exported replay envelope</h2>
+                    <p className="text-sm text-zinc-400">
+                      finalStateHash is computed by replaying through the public facade.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
+                      type="button"
+                      onClick={() => void copyEnvelope()}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
+                      data-testid="clear-export"
+                      type="button"
+                      onClick={clearExportedEnvelope}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                {exportMeta ? (
+                  <p className="mb-2 text-xs text-zinc-400" data-testid="export-meta">
+                    {`Exported: ${exportMeta.timestamp} \u00b7 ${exportMeta.commandCount} commands \u00b7 seed ${exportMeta.seed}`}
+                  </p>
+                ) : null}
+                <textarea
+                  className="min-h-48 w-full rounded border border-[color:var(--oc-border)] bg-zinc-950 p-3 font-mono text-sm text-zinc-100"
+                  data-testid="export-envelope"
+                  ref={exportedEnvelopeRef}
+                  readOnly
+                  value={exportedEnvelope}
+                />
+                {copyStatus === 'copied' ? (
+                  <p className="mt-2 text-sm text-emerald-200" data-testid="copy-status">
+                    Copied
+                  </p>
+                ) : null}
+                {copyStatus === 'failed' ? (
+                  <p className="mt-2 text-sm text-red-200" data-testid="copy-status">
+                    Select all + Ctrl+C to copy
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+
+            <section>
+              {match ? (
+                <div className="flex flex-col gap-3">
+                  <div
+                    className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
+                    data-testid="perspective-toggle"
                   >
-                    View as {player}
-                  </button>
-                ))}
-              </div>
-              <BoardView
-                activePlayer={match.p1View.activePlayer}
-                commands={match.commands}
-                issues={errors[viewer] ?? []}
-                view={viewer === p1 ? match.p1View : match.p2View}
-                viewer={viewer}
-                onDraw={drawCard}
-              />
-            </div>
-          ) : (
-            <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
-              Start a new game to create both hot-seat player views.
-            </div>
-          )}
-        </section>
+                    {players.map((player) => (
+                      <button
+                        className={`rounded px-3 py-2 text-sm font-semibold ${
+                          viewer === player
+                            ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                            : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        data-testid={`view-as-${player}`}
+                        key={player}
+                        type="button"
+                        onClick={() => setViewer(player)}
+                      >
+                        View as {player}
+                      </button>
+                    ))}
+                  </div>
+                  <BoardView
+                    activePlayer={match.p1View.activePlayer}
+                    commands={match.commands}
+                    issues={errors[viewer] ?? []}
+                    view={viewer === p1 ? match.p1View : match.p2View}
+                    viewer={viewer}
+                    onDraw={drawCard}
+                  />
+                </div>
+              ) : (
+                <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
+                  Start a new game to create both hot-seat player views.
+                </div>
+              )}
+            </section>
 
-        <MatchLog commands={match?.commands ?? []} limit={logLimit} />
+            <MatchLog commands={match?.commands ?? []} limit={logLimit} />
 
-        <ReplayPanel
-          replayInput={replayInput}
-          replay={replay}
-          pasteValidation={pasteValidation}
-          pasteStatus={pasteStatus}
-          onReplayInput={(value) => {
-            setReplayInput(value);
-            setReplay({ status: 'idle' });
-            setPasteValidation(null);
-          }}
-          onVerify={verifyReplay}
-          onPaste={() => void pasteReplayFromClipboard()}
-        />
+            <ReplayPanel
+              replayInput={replayInput}
+              replay={replay}
+              pasteValidation={pasteValidation}
+              pasteStatus={pasteStatus}
+              onReplayInput={(value) => {
+                setReplayInput(value);
+                setReplay({ status: 'idle' });
+                setPasteValidation(null);
+              }}
+              onVerify={verifyReplay}
+              onPaste={() => void pasteReplayFromClipboard()}
+            />
+          </>
+        ) : null}
       </div>
     </main>
   );

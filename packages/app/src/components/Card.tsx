@@ -15,6 +15,10 @@ export type CardProps =
       readonly kind: 'spark-adept' | 'ember-guard' | 'flare-strike' | string;
       readonly masked?: false;
       readonly testId?: string;
+      /** Optional overrides for the displayed text (used by creator preview). */
+      readonly name?: string | undefined;
+      readonly type?: 'unit' | 'tactic' | undefined;
+      readonly cost?: number | undefined;
     }
   | { readonly masked: true; readonly testId?: string };
 
@@ -89,24 +93,42 @@ export function Card(props: CardProps): JSX.Element {
     );
   }
 
-  return <CardFront kind={props.kind} testId={props.testId} />;
+  return (
+    <CardFront
+      kind={props.kind}
+      testId={props.testId}
+      nameOverride={props.name}
+      typeOverride={props.type}
+      costOverride={props.cost}
+    />
+  );
 }
 
 function CardFront({
   kind,
   testId,
+  nameOverride,
+  typeOverride,
+  costOverride,
 }: {
   readonly kind: string;
   readonly testId?: string | undefined;
+  readonly nameOverride?: string | undefined;
+  readonly typeOverride?: 'unit' | 'tactic' | undefined;
+  readonly costOverride?: number | undefined;
 }): JSX.Element {
-  const theme = resolveTheme(kind);
-  const colors = palette[theme.accentColor];
+  const theme = resolveTheme(kind, nameOverride, typeOverride, costOverride);
+  const isKnown = cardThemes[kind] !== undefined;
+  const colors: CustomPalette = isKnown
+    ? (palette[theme.accentColor] as CustomPalette)
+    : resolveCustomPalette(kind);
   const rotateX = useMotionValue(0);
   const rotateY = useMotionValue(0);
   const shadowY = useTransform(rotateX, [-6, 6], [18, 10]);
+  const glowColor = colors.glow;
   const boxShadow = useTransform(
     shadowY,
-    (value) => `0 ${value}px 32px ${colors.glow}, 0 8px 18px rgba(0, 0, 0, 0.36)`,
+    (value) => `0 ${value}px 32px ${glowColor}, 0 8px 18px rgba(0, 0, 0, 0.36)`,
   );
 
   function handleMouseMove(event: MouseEvent<HTMLDivElement>): void {
@@ -137,22 +159,75 @@ function CardFront({
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
     >
-      <CardFrontSvg colors={colors} theme={theme} />
+      <CardFrontSvg colors={colors} theme={theme} kind={kind} />
     </motion.div>
   );
 }
 
-function resolveTheme(kind: string): CardTheme {
-  return (
-    cardThemes[kind] ?? {
-      glyph: '?',
-      accentColor: 'zinc',
-      label: kind,
-      description: 'Unknown card',
-      type: 'tactic',
-      cost: stableCost(kind),
-    }
-  );
+/** Derive a stable hue (0–359) from a kind string by summing char codes. */
+function kindToHue(kind: string): number {
+  let sum = 0;
+  for (const ch of kind) {
+    sum += ch.charCodeAt(0);
+  }
+  return sum % 360;
+}
+
+/** Build a CSS hsl accent string for an unknown kind. */
+export function kindToHsl(kind: string): string {
+  return `hsl(${String(kindToHue(kind))}, 65%, 55%)`;
+}
+
+/**
+ * Custom accent palette entry for arbitrary (unknown) card kinds.
+ * Colors are inlined as literal strings derived from the kind hash.
+ */
+type CustomPalette = {
+  readonly frame: string;
+  readonly deep: string;
+  readonly mid: string;
+  readonly light: string;
+  readonly glow: string;
+};
+
+function resolveCustomPalette(kind: string): CustomPalette {
+  const hue = kindToHue(kind);
+  return {
+    frame: `hsl(${String(hue)}, 65%, 55%)`,
+    deep: `hsl(${String(hue)}, 40%, 10%)`,
+    mid: `hsl(${String(hue)}, 55%, 35%)`,
+    light: `hsl(${String(hue)}, 80%, 85%)`,
+    glow: `hsla(${String(hue)}, 65%, 55%, 0.38)`,
+  };
+}
+
+function resolveTheme(
+  kind: string,
+  nameOverride?: string,
+  typeOverride?: 'unit' | 'tactic',
+  costOverride?: number,
+): CardTheme {
+  const base = cardThemes[kind];
+  if (base) {
+    // Known themed kind — apply overrides for display text only.
+    return {
+      ...base,
+      label: nameOverride && nameOverride.trim() !== '' ? nameOverride : base.label,
+      type: typeOverride ?? base.type,
+      cost: costOverride ?? base.cost,
+    };
+  }
+
+  // Unknown kind — derive stable accent from kind hash.
+  const displayName = nameOverride && nameOverride.trim() !== '' ? nameOverride : kind;
+  return {
+    glyph: displayName.charAt(0).toUpperCase() || '?',
+    accentColor: 'zinc',
+    label: displayName,
+    description: typeOverride ?? 'custom',
+    type: typeOverride ?? 'tactic',
+    cost: costOverride ?? stableCost(kind),
+  };
 }
 
 function stableCost(kind: string): number {
@@ -167,11 +242,13 @@ function stableCost(kind: string): number {
 function CardFrontSvg({
   colors,
   theme,
+  kind,
 }: {
-  readonly colors: (typeof palette)[keyof typeof palette];
+  readonly colors: CustomPalette;
   readonly theme: CardTheme;
+  readonly kind: string;
 }): JSX.Element {
-  const gradientId = `front-${theme.accentColor}`;
+  const gradientId = `front-${cardThemes[kind] === undefined ? `custom-${String(kindToHue(kind))}` : theme.accentColor}`;
 
   return (
     <svg aria-hidden="true" className="block h-full w-full" viewBox="0 0 120 180" role="img">
@@ -260,7 +337,7 @@ function Pattern({
   colors,
   theme,
 }: {
-  readonly colors: (typeof palette)[keyof typeof palette];
+  readonly colors: CustomPalette;
   readonly theme: CardTheme;
 }): JSX.Element {
   if (theme.type === 'tactic') {

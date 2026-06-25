@@ -686,3 +686,154 @@ describe('@opencards/app Ember Duel demo', () => {
     expect(screen.getByTestId('cmd-count-p2').textContent).toBe('1');
   });
 });
+
+const LS_KEY = 'opencards.customCards';
+
+describe('@opencards/app Card Creator', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('nav: clicking nav-create shows card-creator; clicking nav-play shows the board area again', () => {
+    render(createElement(App));
+
+    // Initially the play view is shown — New Game button is visible
+    expect(screen.getByRole('button', { name: 'New Game' })).toBeTruthy();
+    expect(screen.queryByTestId('card-creator')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-create'));
+    expect(screen.getByTestId('card-creator')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-play'));
+    expect(screen.getByRole('button', { name: 'New Game' })).toBeTruthy();
+    expect(screen.queryByTestId('card-creator')).toBeNull();
+  });
+
+  it('typing a Name updates the creator-preview text', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Fire Drake' } });
+
+    const preview = screen.getByTestId('creator-preview');
+    expect(preview.textContent).toContain('Fire Drake');
+  });
+
+  it('invalid kind (uppercase "BAD") shows validation-issues and disables save-card', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    const kindInput = screen.getByLabelText('Kind') as HTMLInputElement;
+    fireEvent.change(kindInput, { target: { value: 'BAD' } });
+
+    expect(screen.queryByTestId('validation-ok')).toBeNull();
+    expect(screen.getByTestId('validation-issues')).toBeTruthy();
+    expect(screen.getByTestId('save-card')).toHaveProperty('disabled', true);
+  });
+
+  it('valid unit card shows validation-ok, enables save-card, saves to list and localStorage', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'test-unit' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Unit' } });
+    // Type is already 'unit' by default
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Attack'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Health'), { target: { value: '2' } });
+
+    expect(screen.getByTestId('validation-ok')).toBeTruthy();
+    expect(screen.getByTestId('save-card')).toHaveProperty('disabled', false);
+
+    fireEvent.click(screen.getByTestId('save-card'));
+
+    expect(screen.getByTestId('saved-card-test-unit')).toBeTruthy();
+
+    const stored = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as Array<{ kind: string }>;
+    expect(stored.some((c) => c.kind === 'test-unit')).toBe(true);
+  });
+
+  it('delete-card removes from list and from localStorage', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'test-unit' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Unit' } });
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Attack'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Health'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('save-card'));
+
+    expect(screen.getByTestId('saved-card-test-unit')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('delete-card-test-unit'));
+
+    expect(screen.queryByTestId('saved-card-test-unit')).toBeNull();
+    const stored = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as Array<{ kind: string }>;
+    expect(stored.some((c) => c.kind === 'test-unit')).toBe(false);
+  });
+
+  it('on mount loads pre-seeded localStorage entry into saved list', () => {
+    const preSeeded = [
+      {
+        kind: 'pre-seeded',
+        name: 'Pre Seeded',
+        type: 'tactic',
+        cost: { energy: 0 },
+        effects: [],
+      },
+    ];
+    localStorage.setItem(LS_KEY, JSON.stringify(preSeeded));
+
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    expect(screen.getByTestId('saved-card-pre-seeded')).toBeTruthy();
+  });
+
+  it('skips corrupt localStorage entries and loads only valid cards on mount', () => {
+    const mixed = [
+      { garbage: true },
+      {
+        kind: 'good-card',
+        name: 'Good Card',
+        type: 'tactic',
+        cost: { energy: 1 },
+        effects: [],
+      },
+    ];
+    localStorage.setItem(LS_KEY, JSON.stringify(mixed));
+
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    expect(screen.getByTestId('saved-card-good-card')).toBeTruthy();
+    expect(screen.queryByTestId('saved-card-undefined')).toBeNull();
+  });
+
+  it('saving a kind that already exists overwrites it in the list and localStorage', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+
+    // Save first version
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'my-card' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Version One' } });
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'tactic' } });
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1' } });
+    fireEvent.click(screen.getByTestId('save-card'));
+
+    // Save second version with same kind
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Version Two' } });
+    fireEvent.click(screen.getByTestId('save-card'));
+
+    const stored = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as Array<{
+      kind: string;
+      name: string;
+    }>;
+    const matches = stored.filter((c) => c.kind === 'my-card');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.name).toBe('Version Two');
+  });
+});
