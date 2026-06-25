@@ -16,7 +16,39 @@ export const ISSUE_CODES = Object.freeze({
   INVALID_DECK_SIZE: 'OC-0003',
   UNKNOWN_TARGET_SELECTOR: 'OC-0004',
   MISSING_UNIT_STATS: 'OC-0005',
+  /** kind missing/empty or not lowercase kebab-case ^[a-z][a-z0-9-]*$ */
+  INVALID_KIND: 'OC-0006',
+  /** name missing or only whitespace */
+  EMPTY_NAME: 'OC-0007',
+  /** type not 'unit' or 'tactic' */
+  UNSUPPORTED_CARD_TYPE: 'OC-0008',
+  /** cost.energy not an integer >= 0 */
+  INVALID_COST: 'OC-0009',
+  /** unit stats present but attack < 0 or health < 1, or non-integers */
+  INVALID_STATS: 'OC-0010',
+  /** a tactic carries a stats object */
+  UNEXPECTED_STATS: 'OC-0011',
+  /** effect amount present but not an integer >= 0 */
+  INVALID_EFFECT_AMOUNT: 'OC-0012',
 } as const);
 
 /** Stable validator issue code emitted by schema checks. */
 export type IssueCode = (typeof ISSUE_CODES)[keyof typeof ISSUE_CODES];
+
+/** Card definition types: CardDefinition, CardType, CardCost, CardStats, EffectDef, TargetSelector. */
+export type {
+  CardDefinition,
+  CardType,
+  CardCost,
+  CardStats,
+  EffectDef,
+  TargetSelector,
+  ValidationIssue,
+  ValidationResult,
+} from './card-definition.js';
+/** Canonical target selector values for effect targeting. */
+export {
+  TARGET_SELECTORS,
+  validateCardDefinition,
+  validateCardDatabase,
+} from './card-definition.js';

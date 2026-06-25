@@ -11,6 +11,9 @@
       "import": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "@opencards/effects": "*"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "node --experimental-strip-types ../../scripts/run-vitest-package.mjs"
