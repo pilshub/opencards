@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { LayoutGroup, motion } from 'framer-motion';
 import type {
-  CardKind,
   Command,
   PlayerId,
   PlayerView,
@@ -12,15 +11,87 @@ import type {
   ViewerHandle,
 } from '@opencards/core';
 import { applyCommand, hashState, replayEnvelope, startMatch, viewMatch } from '@opencards/core';
+import type { CardDefinition, GameFormat } from '@opencards/schema';
+import { DEFAULT_FORMAT, validateCardDefinition, validateFormat } from '@opencards/schema';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
 import { FormatEditor } from './components/FormatEditor.js';
+
+// ── Built-in card definitions ───────────────────────────────────────────────
+
+const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = {
+  'spark-adept': {
+    kind: 'spark-adept',
+    name: 'Spark Adept',
+    type: 'unit',
+    cost: { energy: 1 },
+    stats: { attack: 1, health: 2 },
+    effects: [],
+  },
+  'ember-guard': {
+    kind: 'ember-guard',
+    name: 'Ember Guard',
+    type: 'unit',
+    cost: { energy: 2 },
+    stats: { attack: 2, health: 3 },
+    effects: [],
+  },
+  'flare-strike': {
+    kind: 'flare-strike',
+    name: 'Flare Strike',
+    type: 'tactic',
+    cost: { energy: 1 },
+    effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+  },
+};
+
+/** Load and validate custom cards from localStorage. */
+function loadCustomCards(): CardDefinition[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('opencards.customCards');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is CardDefinition => validateCardDefinition(entry).ok);
+  } catch {
+    return [];
+  }
+}
+
+/** Load validated format from localStorage, falling back to DEFAULT_FORMAT. */
+function loadFormat(): GameFormat {
+  if (typeof window === 'undefined') return DEFAULT_FORMAT;
+  try {
+    const raw = localStorage.getItem('opencards.format');
+    if (!raw) return DEFAULT_FORMAT;
+    const parsed = JSON.parse(raw) as unknown;
+    const result = validateFormat(parsed);
+    if (!result.ok) return DEFAULT_FORMAT;
+    return parsed as GameFormat;
+  } catch {
+    return DEFAULT_FORMAT;
+  }
+}
+
+/**
+ * Build a kind→definition map for the VIEWER's own cards only.
+ * Builtins are always present; custom cards override on kind clash when useCustom is true.
+ */
+function buildCardRegistry(useCustom: boolean): Map<string, CardDefinition> {
+  const registry = new Map<string, CardDefinition>(Object.entries(BUILTIN_DEFINITIONS));
+  if (useCustom) {
+    for (const def of loadCustomCards()) {
+      registry.set(def.kind, def);
+    }
+  }
+  return registry;
+}
 
 type AppView = 'play' | 'create' | 'rules';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
-const cardKinds: readonly CardKind[] = ['spark-adept', 'ember-guard', 'flare-strike'];
 const players = [p1, p2] as const;
 
 type MatchState = {
@@ -55,10 +126,7 @@ type PasteValidationState =
   | { readonly status: 'missing-fields'; readonly message: string }
   | { readonly status: 'valid-shape'; readonly message: string };
 
-export default function App({
-  defaultSetup = buildSetup,
-  matchLogLimit,
-}: AppProps = {}): JSX.Element {
+export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX.Element {
   const [appView, setAppView] = useState<AppView>('play');
   const [seed, setSeed] = useState(42);
   const [match, setMatch] = useState<MatchState | null>(null);
@@ -77,13 +145,20 @@ export default function App({
   const [pasteStatus, setPasteStatus] = useState<'idle' | 'pasted' | 'failed' | 'unavailable'>(
     'idle',
   );
+  const [useCustomCards, setUseCustomCards] = useState(false);
   const exportedEnvelopeRef = useRef<HTMLTextAreaElement | null>(null);
   const currentHash = useMemo(() => (match ? hashState(match.p1View) : 'no match'), [match]);
   const rawLimit = matchLogLimit ?? 50;
   const logLimit = Number.isFinite(rawLimit) ? Math.max(1, rawLimit) : 50;
 
+  const activeFormat = loadFormat();
+  const savedCustomCards = loadCustomCards();
+  const hasCustomCards = savedCustomCards.length > 0;
+
   function startNewGame(): void {
-    const setupOpts = defaultSetup(seed);
+    const setupOpts = defaultSetup
+      ? defaultSetup(seed)
+      : buildSetupFromFormat(seed, useCustomCards && hasCustomCards ? savedCustomCards : null);
     const started = startMatch(setupOpts);
     setMatch(project(started.handles, seed, setupOpts, []));
     setErrors({});
@@ -336,6 +411,19 @@ export default function App({
                     Match seed (active): {match.seed}
                   </p>
                 ) : null}
+                <p className="text-xs text-zinc-400" data-testid="active-format">
+                  {`Format: ${activeFormat.name} · deck ${String(activeFormat.deckSize)} · hand ${String(activeFormat.openingHandSize)}`}
+                </p>
+                <label className="flex items-center gap-2 text-xs text-zinc-300">
+                  <input
+                    checked={useCustomCards && hasCustomCards}
+                    data-testid="use-custom-cards"
+                    disabled={!hasCustomCards}
+                    type="checkbox"
+                    onChange={(event) => setUseCustomCards(event.currentTarget.checked)}
+                  />
+                  Use my cards
+                </label>
               </div>
               <button
                 className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
@@ -441,6 +529,7 @@ export default function App({
                   </div>
                   <BoardView
                     activePlayer={match.p1View.activePlayer}
+                    cardRegistry={buildCardRegistry(useCustomCards && hasCustomCards)}
                     commands={match.commands}
                     issues={errors[viewer] ?? []}
                     view={viewer === p1 ? match.p1View : match.p2View}
@@ -549,6 +638,7 @@ function BoardView({
   viewer,
   view,
   activePlayer,
+  cardRegistry,
   commands,
   issues,
   onDraw,
@@ -556,6 +646,7 @@ function BoardView({
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
+  readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
   readonly onDraw: (player: PlayerId) => void;
@@ -600,6 +691,7 @@ function BoardView({
 
       <PlayerArea
         activePlayer={activePlayer}
+        cardRegistry={cardRegistry}
         commands={commands}
         issues={issues}
         onDraw={onDraw}
@@ -614,6 +706,7 @@ function PlayerArea({
   viewer,
   view,
   activePlayer,
+  cardRegistry,
   commands,
   issues,
   onDraw,
@@ -621,6 +714,7 @@ function PlayerArea({
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
+  readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
   readonly onDraw: (player: PlayerId) => void;
@@ -682,7 +776,7 @@ function PlayerArea({
         </button>
       </div>
 
-      <FannedHand cards={view.viewer.hand} owner={viewer} />
+      <FannedHand cards={view.viewer.hand} owner={viewer} cardRegistry={cardRegistry} />
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
         <div className="relative">
@@ -753,6 +847,7 @@ type FannedHandProps =
   | {
       readonly cards: PlayerView['viewer']['hand'];
       readonly owner: PlayerId;
+      readonly cardRegistry: Map<string, CardDefinition>;
       readonly masked?: false;
     }
   | {
@@ -793,6 +888,10 @@ function FannedHand(props: FannedHandProps): JSX.Element {
           }
 
           const card = props.cards[index]!;
+          // Resolve the viewer's own card through the registry so custom cards
+          // show their real name/type/cost. The opponent path never gets the
+          // registry, so hidden information stays masked.
+          const def = props.cardRegistry.get(card.kind);
 
           return (
             <motion.li
@@ -806,7 +905,7 @@ function FannedHand(props: FannedHandProps): JSX.Element {
               style={{ transformOrigin: '50% 100%' }}
               transition={{ type: 'spring', stiffness: 260, damping: 24 }}
             >
-              <Card kind={card.kind} />
+              <Card kind={card.kind} name={def?.name} type={def?.type} cost={def?.cost.energy} />
             </motion.li>
           );
         })}
@@ -1008,13 +1107,20 @@ function ReplayResult({ replay }: { readonly replay: ReplayState }): JSX.Element
   );
 }
 
-function buildSetup(seed: number): SetupOpts {
+function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null): SetupOpts {
+  const format = loadFormat();
+  // Custom cards drive the playable kinds; fall back to the built-in set so
+  // cardKinds is never empty (the engine cycles the deck over these kinds).
+  const kinds =
+    customCards && customCards.length > 0
+      ? customCards.map((card) => card.kind)
+      : Object.keys(BUILTIN_DEFINITIONS);
   return {
     seed,
     players,
-    deckSize: 12,
-    openingHandSize: 5,
-    cardKinds,
+    deckSize: format.deckSize,
+    openingHandSize: format.openingHandSize,
+    cardKinds: kinds,
   };
 }
 

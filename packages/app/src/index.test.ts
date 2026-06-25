@@ -934,3 +934,82 @@ describe('@opencards/app Card Creator', () => {
     expect(matches[0]?.name).toBe('Version Two');
   });
 });
+
+describe('@opencards/app custom game integration', () => {
+  const CUSTOM_KEY = 'opencards.customCards';
+  const FORMAT_KEY = 'opencards.format';
+
+  const customCards = [
+    { kind: 'my-dragon', name: 'My Dragon', type: 'tactic', cost: { energy: 1 }, effects: [] },
+    {
+      kind: 'my-knight',
+      name: 'My Knight',
+      type: 'unit',
+      cost: { energy: 2 },
+      stats: { attack: 2, health: 3 },
+      effects: [],
+    },
+  ];
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('default play is unaffected when no custom cards are saved', () => {
+    render(createElement(App));
+
+    const toggle = screen.getByTestId('use-custom-cards') as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
+  });
+
+  it('plays with custom cards and shows their names in the viewer hand', () => {
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(customCards));
+    render(createElement(App));
+
+    fireEvent.click(screen.getByTestId('use-custom-cards'));
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const playerArea = screen.getByTestId('player-area');
+    const handText = playerArea.textContent ?? '';
+    expect(handText.includes('My Dragon') || handText.includes('My Knight')).toBe(true);
+  });
+
+  it('keeps the opponent masked even when playing custom cards', () => {
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(customCards));
+    render(createElement(App));
+
+    fireEvent.click(screen.getByTestId('use-custom-cards'));
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const opponentHtml = screen.getByTestId('opponent-area').outerHTML;
+    for (const card of customCards) {
+      expect(opponentHtml).not.toContain(card.kind);
+      expect(opponentHtml).not.toContain(card.name);
+    }
+  });
+
+  it('uses the saved format for the active-format summary and the deal', () => {
+    const format = {
+      name: 'My Format',
+      deckSize: 8,
+      openingHandSize: 3,
+      copyLimit: 4,
+      baseTotal: 20,
+      startingEnergy: 0,
+    };
+    localStorage.setItem(FORMAT_KEY, JSON.stringify(format));
+    render(createElement(App));
+
+    const activeFormat = screen.getByTestId('active-format').textContent ?? '';
+    expect(activeFormat).toContain('My Format');
+    expect(activeFormat).toContain('deck 8');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+    expect(within(screen.getByTestId('player-area')).getByTestId('deck-count-p1').textContent).toBe(
+      '5',
+    );
+  });
+});
