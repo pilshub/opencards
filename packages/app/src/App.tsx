@@ -57,6 +57,7 @@ export default function App({
 }: AppProps = {}): JSX.Element {
   const [seed, setSeed] = useState(42);
   const [match, setMatch] = useState<MatchState | null>(null);
+  const [viewer, setViewer] = useState<PlayerId>(p1);
   const [errors, setErrors] = useState<Record<string, readonly ValidationIssue[]>>({});
   const [replayInput, setReplayInput] = useState('');
   const [replay, setReplay] = useState<ReplayState>({ status: 'idle' });
@@ -118,6 +119,10 @@ export default function App({
     setErrors((current) => ({ ...current, [player]: result.issues }));
   }
 
+  function flipViewer(): void {
+    setViewer((current) => (current === p1 ? p2 : p1));
+  }
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       if (isShortcutTarget(event.target)) {
@@ -131,6 +136,11 @@ export default function App({
 
       if (event.key === 'r' || event.key === 'R') {
         resetGame();
+        return;
+      }
+
+      if (event.key === 'v' || event.key === 'V') {
+        flipViewer();
         return;
       }
 
@@ -300,7 +310,7 @@ export default function App({
               Export envelope
             </button>
           ) : null}
-          <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw</p>
+          <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
         </section>
 
         {exportedEnvelope ? (
@@ -355,31 +365,40 @@ export default function App({
           </section>
         ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-2">
+        <section>
           {match ? (
-            <>
-              <TurnInfo view={match.p1View} />
-              <PlayerColumn
-                player={p1}
-                opponent={p2}
-                view={match.p1View}
+            <div className="flex flex-col gap-3">
+              <div
+                className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
+                data-testid="perspective-toggle"
+              >
+                {players.map((player) => (
+                  <button
+                    className={`rounded px-3 py-2 text-sm font-semibold ${
+                      viewer === player
+                        ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                        : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                    data-testid={`view-as-${player}`}
+                    key={player}
+                    type="button"
+                    onClick={() => setViewer(player)}
+                  >
+                    View as {player}
+                  </button>
+                ))}
+              </div>
+              <BoardView
                 activePlayer={match.p1View.activePlayer}
                 commands={match.commands}
-                issues={errors[p1] ?? []}
+                issues={errors[viewer] ?? []}
+                view={viewer === p1 ? match.p1View : match.p2View}
+                viewer={viewer}
                 onDraw={drawCard}
               />
-              <PlayerColumn
-                player={p2}
-                opponent={p1}
-                view={match.p2View}
-                activePlayer={match.p2View.activePlayer}
-                commands={match.commands}
-                issues={errors[p2] ?? []}
-                onDraw={drawCard}
-              />
-            </>
+            </div>
           ) : (
-            <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400 lg:col-span-2">
+            <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
               Start a new game to create both hot-seat player views.
             </div>
           )}
@@ -473,31 +492,101 @@ function TurnInfo({ view }: { readonly view: PlayerView }): JSX.Element {
   );
 }
 
-function PlayerColumn({
-  player,
-  opponent,
+function BoardView({
+  viewer,
   view,
   activePlayer,
   commands,
   issues,
   onDraw,
 }: {
-  readonly player: PlayerId;
-  readonly opponent: PlayerId;
+  readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
   readonly onDraw: (player: PlayerId) => void;
 }): JSX.Element {
+  const opponent = otherPlayer(viewer);
   const opponentView = view.opponents[opponent]!;
-  const isActive = player === activePlayer;
+
+  return (
+    <div
+      className="overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-950 shadow-2xl shadow-black/30"
+      data-testid="board"
+    >
+      <BoardArea
+        className="rounded-b-none border-x-0 border-t-0 bg-gradient-to-b from-zinc-900 to-zinc-950"
+        isActive={opponent === activePlayer}
+        testId="opponent-area"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded border border-[color:var(--oc-border)] px-2 py-1 text-sm font-semibold">
+                {opponent}
+              </span>
+              <span className="text-sm text-zinc-400">
+                Hand {opponentView.hand.length} · Deck {opponentView.deck.count}
+              </span>
+            </div>
+            <BaseBadge />
+          </div>
+          <FannedHand masked cardCount={opponentView.hand.length} owner={opponent} />
+          <BattlefieldStrip count={opponentView.battlefield.length} />
+        </div>
+      </BoardArea>
+
+      <div
+        className="relative border-y border-[color:var(--oc-border)] bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.14),rgba(24,24,27,0.82)_42%,rgba(9,9,11,0.94))] px-4 py-5"
+        data-testid="board-center"
+      >
+        <div className="absolute inset-x-6 top-1/2 h-px bg-gradient-to-r from-transparent via-orange-300/35 to-transparent" />
+        <TurnInfo view={view} />
+      </div>
+
+      <PlayerArea
+        activePlayer={activePlayer}
+        commands={commands}
+        issues={issues}
+        onDraw={onDraw}
+        view={view}
+        viewer={viewer}
+      />
+    </div>
+  );
+}
+
+function PlayerArea({
+  viewer,
+  view,
+  activePlayer,
+  commands,
+  issues,
+  onDraw,
+}: {
+  readonly viewer: PlayerId;
+  readonly view: PlayerView;
+  readonly activePlayer: PlayerId;
+  readonly commands: readonly Command[];
+  readonly issues: readonly ValidationIssue[];
+  readonly onDraw: (player: PlayerId) => void;
+}): JSX.Element {
+  const isActive = viewer === activePlayer;
   const canDraw = view.viewer.deck.length > 0;
-  const commandCount = commands.filter((command) => command.player === player).length;
+  const commandCount = commands.filter((command) => command.player === viewer).length;
   const [sparkBurstKey, setSparkBurstKey] = useState<number | null>(null);
   const previousCommandCount = useRef(commandCount);
+  const previousViewer = useRef(viewer);
 
   useEffect(() => {
+    if (previousViewer.current !== viewer) {
+      previousViewer.current = viewer;
+      previousCommandCount.current = commandCount;
+      setSparkBurstKey(null);
+      return undefined;
+    }
+
     if (commandCount > previousCommandCount.current) {
       const burstKey = Date.now();
       setSparkBurstKey(burstKey);
@@ -509,39 +598,23 @@ function PlayerColumn({
 
     previousCommandCount.current = commandCount;
     return undefined;
-  }, [commandCount]);
+  }, [commandCount, viewer]);
 
   return (
-    <motion.article
-      animate={
-        isActive
-          ? {
-              borderColor: ['rgba(245, 158, 11, 0.45)', 'rgba(249, 115, 22, 0.9)'],
-              boxShadow: [
-                '0 0 0 1px rgba(245, 158, 11, 0.24), 0 0 18px rgba(245, 158, 11, 0.12)',
-                '0 0 0 1px rgba(249, 115, 22, 0.48), 0 0 28px rgba(249, 115, 22, 0.24)',
-              ],
-            }
-          : { borderColor: 'rgba(244, 244, 245, 0.16)', boxShadow: '0 0 0 rgba(0, 0, 0, 0)' }
-      }
-      className={`rounded border bg-zinc-900/95 p-4 ${
-        isActive ? 'border-[color:var(--oc-accent)]' : 'border-[color:var(--oc-border)]'
-      }`}
-      data-active={isActive ? 'true' : 'false'}
-      data-testid={`player-${player}`}
-      transition={
-        isActive
-          ? { duration: 1.5, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }
-          : { duration: 0.2 }
-      }
+    <BoardArea
+      className="rounded-t-none border-x-0 border-b-0 bg-gradient-to-b from-zinc-950 to-zinc-900"
+      isActive={isActive}
+      testId="player-area"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded border border-[color:var(--oc-border)] px-2 py-1 text-sm font-semibold">
-            {player}
+            {viewer}
           </span>
+          <span className="text-sm text-zinc-400">Hand {view.viewer.hand.length}</span>
+          <BaseBadge />
           <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
-            Cmds: <span data-testid={`cmd-count-${player}`}>{commandCount}</span>
+            Cmds: <span data-testid={`cmd-count-${viewer}`}>{commandCount}</span>
           </span>
         </div>
         <button
@@ -550,65 +623,19 @@ function PlayerColumn({
           }`}
           disabled={!canDraw}
           type="button"
-          onClick={() => onDraw(player)}
+          onClick={() => onDraw(viewer)}
         >
           Draw card
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <ZoneBlock title="Own hand" count={view.viewer.hand.length}>
-          <LayoutGroup id={`hand-${player}`}>
-            <ul
-              className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,7.5rem))] justify-center gap-3"
-              data-testid={`own-hand-${player}`}
-            >
-              {view.viewer.hand.map((card) => (
-                <motion.li
-                  className="list-none"
-                  data-testid={`own-card-${player}`}
-                  key={card.id}
-                  layout
-                  layoutId={card.id}
-                  initial={{ opacity: 0, x: 72, y: -44, scale: 0.78, rotate: 7 }}
-                  animate={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
-                  transition={{ type: 'spring', stiffness: 260, damping: 24 }}
-                >
-                  <Card kind={card.kind} />
-                </motion.li>
-              ))}
-            </ul>
-          </LayoutGroup>
-        </ZoneBlock>
-
-        <ZoneBlock title={`${opponent} hand`} count={opponentView.hand.length}>
-          <LayoutGroup id={`opponent-hand-${player}-${opponent}`}>
-            <ul
-              className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,7.5rem))] justify-center gap-3 opacity-80"
-              data-testid={`opponent-${opponent}`}
-            >
-              {opponentView.hand.map((_card, index) => (
-                <motion.li
-                  aria-label={`Hidden card ${index + 1}`}
-                  className="list-none"
-                  data-testid={`opponent-card-${index}`}
-                  key={index}
-                  layout
-                  layoutId={`opp-${player}-${opponent}-${index}`}
-                >
-                  <Card masked />
-                </motion.li>
-              ))}
-            </ul>
-          </LayoutGroup>
-        </ZoneBlock>
-      </div>
+      <FannedHand cards={view.viewer.hand} owner={viewer} />
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
         <div className="relative">
           <CountBadge
             label="Deck"
-            testId={`deck-count-${player}`}
+            testId={`deck-count-${viewer}`}
             value={view.viewer.deck.length}
           />
           {sparkBurstKey ? <SparkBurst key={sparkBurstKey} /> : null}
@@ -616,13 +643,9 @@ function PlayerColumn({
         <CountBadge label="Discard" value={view.viewer.discard.length} />
         <CountBadge label="Exile" value={view.viewer.exile.length} />
         <CountBadge label="Battlefield" value={view.viewer.battlefield.length} />
-        <CountBadge label={`${opponent} deck`} value={opponentView.deck.count} />
       </div>
 
-      <div className="mt-4 rounded border border-[color:var(--oc-border)] bg-zinc-950 p-3 text-sm text-zinc-400">
-        Battlefield:{' '}
-        {view.viewer.battlefield.length === 0 ? 'empty' : view.viewer.battlefield.length}
-      </div>
+      <BattlefieldStrip count={view.viewer.battlefield.length} />
 
       {issues.length > 0 ? (
         <div className="mt-4 rounded border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-100">
@@ -631,28 +654,145 @@ function PlayerColumn({
           ))}
         </div>
       ) : null}
-    </motion.article>
+    </BoardArea>
   );
 }
 
-function ZoneBlock({
-  title,
-  count,
+function BoardArea({
+  testId,
+  isActive,
+  className,
   children,
 }: {
-  readonly title: string;
-  readonly count: number;
+  readonly testId: 'opponent-area' | 'player-area';
+  readonly isActive: boolean;
+  readonly className: string;
   readonly children: ReactNode;
 }): JSX.Element {
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between text-sm">
-        <h2 className="font-medium text-zinc-200">{title}</h2>
-        <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">{count}</span>
-      </div>
+    <motion.section
+      animate={
+        isActive
+          ? {
+              borderColor: ['rgba(245, 158, 11, 0.45)', 'rgba(249, 115, 22, 0.9)'],
+              boxShadow: [
+                'inset 0 0 0 1px rgba(245, 158, 11, 0.24), 0 0 18px rgba(245, 158, 11, 0.12)',
+                'inset 0 0 0 1px rgba(249, 115, 22, 0.48), 0 0 28px rgba(249, 115, 22, 0.24)',
+              ],
+            }
+          : { borderColor: 'rgba(244, 244, 245, 0.16)', boxShadow: '0 0 0 rgba(0, 0, 0, 0)' }
+      }
+      className={`border p-4 ${className}`}
+      data-active={isActive ? 'true' : 'false'}
+      data-testid={testId}
+      transition={
+        isActive
+          ? { duration: 1.5, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }
+          : { duration: 0.2 }
+      }
+    >
       {children}
-    </section>
+    </motion.section>
   );
+}
+
+type FannedHandProps =
+  | {
+      readonly cards: PlayerView['viewer']['hand'];
+      readonly owner: PlayerId;
+      readonly masked?: false;
+    }
+  | {
+      readonly cardCount: number;
+      readonly owner: PlayerId;
+      readonly masked: true;
+    };
+
+function FannedHand(props: FannedHandProps): JSX.Element {
+  const count = props.masked ? props.cardCount : props.cards.length;
+  const layoutId = props.masked ? `opponent-hand-${props.owner}` : `hand-${props.owner}`;
+
+  return (
+    <LayoutGroup id={layoutId}>
+      <ul
+        className="flex min-h-[12.5rem] items-end justify-center overflow-x-auto overflow-y-visible px-8 pb-2 pt-6"
+        data-testid={props.masked ? `opponent-${props.owner}` : `own-hand-${props.owner}`}
+      >
+        {Array.from({ length: count }).map((_, index) => {
+          const fan = fanTransform(index, count);
+
+          if (props.masked) {
+            return (
+              <motion.li
+                aria-label={`Hidden card ${index + 1}`}
+                className="-mx-3 list-none"
+                data-testid={`opponent-card-${index}`}
+                key={index}
+                layout
+                layoutId={`opp-${props.owner}-${index}`}
+                animate={{ rotate: fan.rotate, y: fan.y }}
+                style={{ transformOrigin: '50% 100%' }}
+                transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+              >
+                <Card masked />
+              </motion.li>
+            );
+          }
+
+          const card = props.cards[index]!;
+
+          return (
+            <motion.li
+              className="-mx-3 list-none"
+              data-testid={`own-card-${props.owner}`}
+              key={card.id}
+              layout
+              layoutId={card.id}
+              initial={{ opacity: 0, x: 72, y: -44, scale: 0.78, rotate: fan.rotate + 7 }}
+              animate={{ opacity: 1, x: 0, y: fan.y, scale: 1, rotate: fan.rotate }}
+              style={{ transformOrigin: '50% 100%' }}
+              transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+            >
+              <Card kind={card.kind} />
+            </motion.li>
+          );
+        })}
+      </ul>
+    </LayoutGroup>
+  );
+}
+
+function fanTransform(
+  index: number,
+  count: number,
+): { readonly rotate: number; readonly y: number } {
+  const center = (count - 1) / 2;
+  const offset = index - center;
+
+  return {
+    rotate: offset * 4,
+    y: Math.abs(offset) * 4,
+  };
+}
+
+function BattlefieldStrip({ count }: { readonly count: number }): JSX.Element {
+  return (
+    <div className="mt-4 rounded border border-[color:var(--oc-border)] bg-zinc-950/80 px-3 py-3 text-sm text-zinc-400">
+      Battlefield: {count === 0 ? 'empty' : count}
+    </div>
+  );
+}
+
+function BaseBadge(): JSX.Element {
+  return (
+    <span className="rounded border border-zinc-700/70 px-2 py-1 text-xs text-zinc-500">
+      Base —
+    </span>
+  );
+}
+
+function otherPlayer(player: PlayerId): PlayerId {
+  return player === p1 ? p2 : p1;
 }
 
 function SparkBurst(): JSX.Element {

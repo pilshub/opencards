@@ -10,6 +10,11 @@ const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
 const cardKinds: readonly CardKind[] = ['spark-adept', 'ember-guard', 'flare-strike'];
 const cardLabels = ['Spark Adept', 'Ember Guard', 'Flare Strike'] as const;
+const cardLabelByKind = new Map<CardKind, string>([
+  ['spark-adept', 'Spark Adept'],
+  ['ember-guard', 'Ember Guard'],
+  ['flare-strike', 'Flare Strike'],
+]);
 const setupOpts: SetupOpts = {
   seed: 42,
   players: [p1, p2],
@@ -36,6 +41,10 @@ function removeClipboard(): void {
   Reflect.deleteProperty(navigator, 'clipboard');
 }
 
+function labelForKind(kind: CardKind): string {
+  return cardLabelByKind.get(kind) ?? kind;
+}
+
 beforeEach(() => {
   Object.defineProperty(navigator, 'clipboard', {
     value: {
@@ -53,25 +62,29 @@ afterEach(() => {
 });
 
 describe('@opencards/app Ember Duel demo', () => {
-  it('starts a hot-seat match and advances p1 through the facade', () => {
+  it('renders board with viewer hand on bottom and opponent backs on top', () => {
     render(createElement(App));
-    const labelKind = (kind: string) =>
-      kind
-        .split('-')
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    const p1Column = screen.getByTestId('player-p1');
-    const p2Column = screen.getByTestId('player-p2');
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(5);
-    expect(within(p2Column).getByTestId('opponent-p1').children).toHaveLength(5);
+    const playerArea = screen.getByTestId('player-area');
+    const opponentArea = screen.getByTestId('opponent-area');
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(5);
+    expect(within(opponentArea).getByTestId('opponent-card-0')).toBeTruthy();
+  });
 
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
+  it('starts a hot-seat match and advances p1 through the facade', () => {
+    render(createElement(App));
 
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(6);
-    expect(within(p1Column).getByTestId('deck-count-p1').textContent).toBe('6');
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const playerArea = screen.getByTestId('player-area');
+
+    fireEvent.click(within(playerArea).getByRole('button', { name: 'Draw card' }));
+
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(6);
+    expect(within(playerArea).getByTestId('deck-count-p1').textContent).toBe('6');
 
     const { handles } = startMatch(setupOpts);
     const p1Projection = viewMatch(handles[p1]!);
@@ -80,19 +93,14 @@ describe('@opencards/app Ember Duel demo', () => {
       expect(p1OpponentJson).not.toContain(kind);
     }
 
-    // Opponent zones are within each player column under [data-testid="opponent-<other>"].
-    const p1OpponentZone = within(p1Column).getByTestId('opponent-p2');
-    const p2OpponentZone = within(p2Column).getByTestId('opponent-p1');
-
-    for (const zone of [p1OpponentZone, p2OpponentZone]) {
-      const zoneHtml = zone.outerHTML;
-      for (const kind of cardKinds) {
-        expect(zoneHtml).not.toContain(kind);
-        expect(zoneHtml).not.toContain(labelKind(kind));
-      }
+    const opponentArea = screen.getByTestId('opponent-area');
+    const opponentHtml = opponentArea.outerHTML;
+    for (const kind of cardKinds) {
+      expect(opponentHtml).not.toContain(kind);
+      expect(opponentHtml).not.toContain(labelForKind(kind));
     }
 
-    const p1OpponentEntries = p1OpponentZone.querySelectorAll('[data-testid^="opponent-card-"]');
+    const p1OpponentEntries = opponentArea.querySelectorAll('[data-testid^="opponent-card-"]');
     expect(p1OpponentEntries.length).toBeGreaterThan(0);
     for (const entry of p1OpponentEntries) {
       for (const kind of cardKinds) {
@@ -104,12 +112,66 @@ describe('@opencards/app Ember Duel demo', () => {
     }
   });
 
+  it('perspective toggle flips the board', () => {
+    render(createElement(App));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+    fireEvent.click(screen.getByTestId('view-as-p2'));
+
+    const playerArea = screen.getByTestId('player-area');
+    const opponentArea = screen.getByTestId('opponent-area');
+    expect(within(playerArea).getAllByTestId('own-card-p2')).toHaveLength(5);
+    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(5);
+
+    const { handles } = startMatch(setupOpts);
+    const p1HandKinds = viewMatch(handles[p1]!).viewer.hand.map((card) => card.kind);
+    const opponentHtml = opponentArea.outerHTML;
+    for (const kind of p1HandKinds) {
+      expect(opponentHtml).not.toContain(kind);
+      expect(opponentHtml).not.toContain(labelForKind(kind));
+    }
+  });
+
+  it('does not render opponent hand kinds anywhere in the board DOM', () => {
+    const hiddenInfoSetup: SetupOpts = {
+      seed: 1,
+      players: [p1, p2],
+      deckSize: 24,
+      openingHandSize: 5,
+      cardKinds: Array.from({ length: 24 }, (_, index) => {
+        return `hidden-kind-${String(index).padStart(2, '0')}`;
+      }),
+    };
+    const { handles } = startMatch(hiddenInfoSetup);
+    const p1HandKinds = viewMatch(handles[p1]!).viewer.hand.map((card) => card.kind);
+    const p2HandKinds = viewMatch(handles[p2]!).viewer.hand.map((card) => card.kind);
+    render(createElement<AppProps>(App, { defaultSetup: () => hiddenInfoSetup }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    let boardHtml = screen.getByTestId('board').innerHTML;
+    for (const kind of p2HandKinds) {
+      expect(boardHtml).not.toContain(kind);
+      expect(boardHtml).not.toContain(labelForKind(kind));
+    }
+
+    fireEvent.click(screen.getByTestId('view-as-p2'));
+
+    boardHtml = screen.getByTestId('board').innerHTML;
+    for (const kind of p1HandKinds) {
+      expect(boardHtml).not.toContain(kind);
+      expect(boardHtml).not.toContain(labelForKind(kind));
+    }
+  });
+
   it('card front shows kind label for own hand', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    const firstOwnCard = within(screen.getByTestId('player-p1')).getAllByTestId('own-card-p1')[0]!;
+    const firstOwnCard = within(screen.getByTestId('player-area')).getAllByTestId(
+      'own-card-p1',
+    )[0]!;
     expect(cardLabels.some((label) => firstOwnCard.textContent?.includes(label))).toBe(true);
   });
 
@@ -118,7 +180,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    const opponentCard = within(screen.getByTestId('player-p1')).getAllByTestId(
+    const opponentCard = within(screen.getByTestId('opponent-area')).getAllByTestId(
       'opponent-card-0',
     )[0]!;
     for (const kind of cardKinds) {
@@ -129,12 +191,13 @@ describe('@opencards/app Ember Duel demo', () => {
     }
   });
 
-  it('active player column has glow indicator', () => {
+  it('active player area has glow indicator', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    expect(screen.getByTestId('player-p1').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('player-area').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('opponent-area').getAttribute('data-active')).toBe('false');
   });
 
   it('verifies replay envelope JSON without exposing raw state', () => {
@@ -177,8 +240,9 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    const p1Column = screen.getByTestId('player-p1');
-    const drawButton = within(p1Column).getByRole('button', { name: 'Draw card' });
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
+      name: 'Draw card',
+    });
     expect(drawButton).toHaveProperty('disabled', true);
   });
 
@@ -196,7 +260,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
 
@@ -214,8 +278,9 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.change(seedInput, { target: { value: '42' } });
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    const p1Column = screen.getByTestId('player-p1');
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
+    fireEvent.click(
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
+    );
 
     fireEvent.change(seedInput, { target: { value: '999' } });
 
@@ -234,12 +299,11 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.keyDown(window, { key: 'n' });
 
-    expect(screen.getByTestId('player-p1')).toBeTruthy();
+    expect(screen.getByTestId('player-area')).toBeTruthy();
 
     fireEvent.keyDown(window, { key: '1' });
 
-    const p1Column = screen.getByTestId('player-p1');
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(6);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(6);
   });
 
   it('shortcut focus guard ignores keys while typing in seed input', () => {
@@ -249,7 +313,7 @@ describe('@opencards/app Ember Duel demo', () => {
     seedInput.focus();
     fireEvent.keyDown(seedInput, { key: 'n' });
 
-    expect(screen.queryByTestId('player-p1')).toBeNull();
+    expect(screen.queryByTestId('player-area')).toBeNull();
   });
 
   it('shortcut focus guard ignores keys while typing in replay textarea', () => {
@@ -261,8 +325,7 @@ describe('@opencards/app Ember Duel demo', () => {
     replayTextarea.focus();
     fireEvent.keyDown(replayTextarea, { key: '1' });
 
-    const p1Column = screen.getByTestId('player-p1');
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
   });
 
   it("shortcut '2' draws for p2", () => {
@@ -270,9 +333,20 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.keyDown(window, { key: 'n' });
     fireEvent.keyDown(window, { key: '2' });
+    fireEvent.click(screen.getByTestId('view-as-p2'));
 
-    const p2Column = screen.getByTestId('player-p2');
-    expect(within(p2Column).getAllByTestId('own-card-p2')).toHaveLength(6);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(6);
+  });
+
+  it("shortcut 'v' toggles perspective", () => {
+    render(createElement(App));
+
+    fireEvent.keyDown(window, { key: 'n' });
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
+
+    fireEvent.keyDown(window, { key: 'v' });
+
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(5);
   });
 
   it("shortcut 'r' resets the match", () => {
@@ -281,7 +355,7 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.keyDown(window, { key: 'n' });
     fireEvent.keyDown(window, { key: 'r' });
 
-    expect(screen.queryByTestId('player-p1')).toBeNull();
+    expect(screen.queryByTestId('player-area')).toBeNull();
     expect(screen.getByText('Start a new game to create both hot-seat player views.')).toBeTruthy();
   });
 
@@ -295,12 +369,12 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.keyDown(window, { key: 'n' });
 
-    const p1Column = screen.getByTestId('player-p1');
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(5);
+    const playerArea = screen.getByTestId('player-area');
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(5);
 
     fireEvent.keyDown(document.body, { key: '1' });
 
-    expect(within(p1Column).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(5);
     expect(screen.queryByTestId('log-entry-0')).toBeNull();
     expect(screen.queryByText('Player has no cards to draw: p1')).toBeNull();
   });
@@ -345,7 +419,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -363,7 +437,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -381,7 +455,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -479,8 +553,9 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement<AppProps>(App, { defaultSetup: () => logSetup, matchLogLimit: 3 }));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const p1Column = screen.getByTestId('player-p1');
-    const drawButton = within(p1Column).getByRole('button', { name: 'Draw card' });
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
+      name: 'Draw card',
+    });
     fireEvent.click(drawButton);
     fireEvent.click(drawButton);
     fireEvent.click(drawButton);
@@ -501,7 +576,7 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement<AppProps>(App, { defaultSetup: () => logSetup, matchLogLimit: 0 }));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-p1')).getByRole('button', {
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
       name: 'Draw card',
     });
     for (let index = 0; index < 60; index += 1) {
@@ -526,7 +601,7 @@ describe('@opencards/app Ember Duel demo', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-p1')).getByRole('button', {
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
       name: 'Draw card',
     });
     for (let index = 0; index < 51; index += 1) {
@@ -541,7 +616,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByTestId('clear-export'));
@@ -554,7 +629,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByTestId('reset-game'));
@@ -567,7 +642,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(
-      within(screen.getByTestId('player-p1')).getByRole('button', { name: 'Draw card' }),
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
@@ -579,9 +654,11 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const p1Column = screen.getByTestId('player-p1');
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
+      name: 'Draw card',
+    });
+    fireEvent.click(drawButton);
+    fireEvent.click(drawButton);
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
 
     const exportMeta = screen.getByTestId('export-meta').textContent;
@@ -593,13 +670,19 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const p1Column = screen.getByTestId('player-p1');
-    const p2Column = screen.getByTestId('player-p2');
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
-    fireEvent.click(within(p1Column).getByRole('button', { name: 'Draw card' }));
-    fireEvent.click(within(p2Column).getByRole('button', { name: 'Draw card' }));
+    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
+      name: 'Draw card',
+    });
+    fireEvent.click(drawButton);
+    fireEvent.click(drawButton);
 
     expect(screen.getByTestId('cmd-count-p1').textContent).toBe('2');
+
+    fireEvent.click(screen.getByTestId('view-as-p2'));
+    fireEvent.click(
+      within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
+    );
+
     expect(screen.getByTestId('cmd-count-p2').textContent).toBe('1');
   });
 });
