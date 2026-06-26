@@ -22,6 +22,8 @@ const setupOpts: SetupOpts = {
   openingHandSize: 5,
   cardKinds,
 };
+const LS_KEY = 'opencards.customCards';
+const FORMAT_LS_KEY = 'opencards.format';
 
 function buildEnvelope(overrides: Partial<ReplayEnvelopeV1> = {}): ReplayEnvelopeV1 {
   const draft: ReplayEnvelopeV1 = {
@@ -685,10 +687,94 @@ describe('@opencards/app Ember Duel demo', () => {
 
     expect(screen.getByTestId('cmd-count-p2').textContent).toBe('1');
   });
-});
 
-const LS_KEY = 'opencards.customCards';
-const FORMAT_LS_KEY = 'opencards.format';
+  describe('base, energy, turn flow, and winner surface', () => {
+    afterEach(() => {
+      localStorage.removeItem(FORMAT_LS_KEY);
+    });
+
+    it('shows base and energy badges from the engine values', () => {
+      localStorage.setItem(
+        FORMAT_LS_KEY,
+        JSON.stringify({
+          name: 'High Base',
+          deckSize: 12,
+          openingHandSize: 5,
+          copyLimit: 4,
+          baseTotal: 25,
+          startingEnergy: 1,
+        }),
+      );
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      expect(screen.getByTestId('base-p1').textContent).toBe('25');
+      expect(screen.getByTestId('energy-p1').textContent).toBe('1');
+      expect(screen.getByTestId('base-p2').textContent).toBe('25');
+      expect(screen.getByTestId('energy-p2').textContent).toBe('1');
+    });
+
+    it('end turn flips the active player and grants energy', () => {
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+      fireEvent.click(screen.getByTestId('end-turn'));
+
+      expect(screen.getByTestId('turn-info').textContent).toContain('Active: p2');
+
+      fireEvent.click(screen.getByTestId('view-as-p2'));
+
+      expect(screen.getByTestId('energy-p2').textContent).toBe('1');
+    });
+
+    it('end phase advances the phase', () => {
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      expect(screen.getByTestId('turn-info').textContent).toContain('Phase: main');
+    });
+
+    it('turn controls are disabled when the viewer is not active', () => {
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+      fireEvent.click(screen.getByTestId('view-as-p2'));
+
+      expect(screen.getByTestId('end-turn')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('end-phase')).toHaveProperty('disabled', true);
+      expect(screen.getByText('Waiting for p1')).toBeTruthy();
+    });
+
+    it('records endPhase and endTurn commands for the viewer', () => {
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      expect(screen.getByTestId('cmd-count-p1').textContent).toBe('1');
+      expect(screen.getByTestId('log-entry-0').textContent).toContain('p1');
+      expect(screen.getByTestId('log-entry-0').textContent).toContain('endPhase');
+
+      fireEvent.click(screen.getByTestId('end-turn'));
+
+      expect(screen.getByTestId('cmd-count-p1').textContent).toBe('2');
+      expect(screen.getByTestId('log-entry-1').textContent).toContain('p1');
+      expect(screen.getByTestId('log-entry-1').textContent).toContain('endTurn');
+    });
+
+    it('does not show a winner banner at game start', () => {
+      render(createElement(App));
+
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      // TODO(3.3): add a positive banner assertion once base damage can end a game.
+      expect(screen.queryByTestId('winner-banner')).toBeNull();
+    });
+  });
+});
 
 describe('@opencards/app Format Editor', () => {
   afterEach(() => {

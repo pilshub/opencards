@@ -181,13 +181,12 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setPasteStatus('idle');
   }
 
-  function drawCard(player: PlayerId): void {
+  function applyPlayerCommand(command: Command): void {
     if (!match) {
       return;
     }
 
-    const command: Command = { type: 'drawCard', player };
-    const result = applyCommand(match.handles[player]!, command);
+    const result = applyCommand(match.handles[command.player]!, command);
     setMatch(
       project(
         match.handles,
@@ -196,7 +195,19 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
         result.issues.length === 0 ? [...match.commands, command] : match.commands,
       ),
     );
-    setErrors((current) => ({ ...current, [player]: result.issues }));
+    setErrors((current) => ({ ...current, [command.player]: result.issues }));
+  }
+
+  function drawCard(player: PlayerId): void {
+    applyPlayerCommand({ type: 'drawCard', player });
+  }
+
+  function endPhase(player: PlayerId): void {
+    applyPlayerCommand({ type: 'endPhase', player });
+  }
+
+  function endTurn(player: PlayerId): void {
+    applyPlayerCommand({ type: 'endTurn', player });
   }
 
   function flipViewer(): void {
@@ -535,6 +546,8 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     view={viewer === p1 ? match.p1View : match.p2View}
                     viewer={viewer}
                     onDraw={drawCard}
+                    onEndPhase={endPhase}
+                    onEndTurn={endTurn}
                   />
                 </div>
               ) : (
@@ -642,6 +655,8 @@ function BoardView({
   commands,
   issues,
   onDraw,
+  onEndPhase,
+  onEndTurn,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
@@ -650,6 +665,8 @@ function BoardView({
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
   readonly onDraw: (player: PlayerId) => void;
+  readonly onEndPhase: (player: PlayerId) => void;
+  readonly onEndTurn: (player: PlayerId) => void;
 }): JSX.Element {
   const opponent = otherPlayer(viewer);
   const opponentView = view.opponents[opponent]!;
@@ -659,6 +676,14 @@ function BoardView({
       className="overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-950 shadow-2xl shadow-black/30"
       data-testid="board"
     >
+      {view.winner ? (
+        <div
+          className="border-b border-emerald-400/40 bg-emerald-500/15 px-4 py-3 text-center text-lg font-semibold text-emerald-100"
+          data-testid="winner-banner"
+        >
+          {view.winner} wins
+        </div>
+      ) : null}
       <BoardArea
         className="rounded-b-none border-x-0 border-t-0 bg-gradient-to-b from-zinc-900 to-zinc-950"
         isActive={opponent === activePlayer}
@@ -674,7 +699,7 @@ function BoardView({
                 Hand {opponentView.hand.length} · Deck {opponentView.deck.count}
               </span>
             </div>
-            <BaseBadge />
+            <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
           </div>
           <FannedHand masked cardCount={opponentView.hand.length} owner={opponent} />
           <BattlefieldStrip count={opponentView.battlefield.length} />
@@ -695,6 +720,8 @@ function BoardView({
         commands={commands}
         issues={issues}
         onDraw={onDraw}
+        onEndPhase={onEndPhase}
+        onEndTurn={onEndTurn}
         view={view}
         viewer={viewer}
       />
@@ -710,6 +737,8 @@ function PlayerArea({
   commands,
   issues,
   onDraw,
+  onEndPhase,
+  onEndTurn,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
@@ -718,9 +747,13 @@ function PlayerArea({
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
   readonly onDraw: (player: PlayerId) => void;
+  readonly onEndPhase: (player: PlayerId) => void;
+  readonly onEndTurn: (player: PlayerId) => void;
 }): JSX.Element {
   const isActive = viewer === activePlayer;
-  const canDraw = view.viewer.deck.length > 0;
+  const hasWinner = view.winner !== null;
+  const canDraw = view.viewer.deck.length > 0 && !hasWinner;
+  const canUseTurnControls = isActive && !hasWinner;
   const commandCount = commands.filter((command) => command.player === viewer).length;
   const [sparkBurstKey, setSparkBurstKey] = useState<number | null>(null);
   const previousCommandCount = useRef(commandCount);
@@ -759,21 +792,48 @@ function PlayerArea({
             {viewer}
           </span>
           <span className="text-sm text-zinc-400">Hand {view.viewer.hand.length}</span>
-          <BaseBadge />
+          <BaseBadge base={view.viewer.base} energy={view.viewer.energy} player={viewer} />
           <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
             Cmds: <span data-testid={`cmd-count-${viewer}`}>{commandCount}</span>
           </span>
         </div>
-        <button
-          className={`rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-3 py-2 text-sm text-orange-100 hover:bg-orange-500/25 ${
-            canDraw ? '' : 'cursor-not-allowed opacity-50'
-          }`}
-          disabled={!canDraw}
-          type="button"
-          onClick={() => onDraw(viewer)}
-        >
-          Draw card
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {!isActive && !hasWinner ? (
+            <span className="text-xs text-zinc-500">Waiting for {activePlayer}</span>
+          ) : null}
+          <button
+            className={`rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-3 py-2 text-sm text-orange-100 hover:bg-orange-500/25 ${
+              canDraw ? '' : 'cursor-not-allowed opacity-50'
+            }`}
+            disabled={!canDraw}
+            type="button"
+            onClick={() => onDraw(viewer)}
+          >
+            Draw card
+          </button>
+          <button
+            className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
+              canUseTurnControls ? '' : 'cursor-not-allowed opacity-50'
+            }`}
+            data-testid="end-phase"
+            disabled={!canUseTurnControls}
+            type="button"
+            onClick={() => onEndPhase(viewer)}
+          >
+            End phase
+          </button>
+          <button
+            className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
+              canUseTurnControls ? '' : 'cursor-not-allowed opacity-50'
+            }`}
+            data-testid="end-turn"
+            disabled={!canUseTurnControls}
+            type="button"
+            onClick={() => onEndTurn(viewer)}
+          >
+            End turn
+          </button>
+        </div>
       </div>
 
       <FannedHand cards={view.viewer.hand} owner={viewer} cardRegistry={cardRegistry} />
@@ -935,10 +995,29 @@ function BattlefieldStrip({ count }: { readonly count: number }): JSX.Element {
   );
 }
 
-function BaseBadge(): JSX.Element {
+function BaseBadge({
+  player,
+  base,
+  energy,
+}: {
+  readonly player: PlayerId;
+  readonly base: number;
+  readonly energy: number;
+}): JSX.Element {
   return (
-    <span className="rounded border border-zinc-700/70 px-2 py-1 text-xs text-zinc-500">
-      Base —
+    <span className="inline-flex overflow-hidden rounded border border-zinc-700/70 bg-zinc-900 text-xs text-zinc-300">
+      <span className="border-r border-zinc-700/70 px-2 py-1">
+        HP{' '}
+        <span className="font-semibold text-zinc-100" data-testid={`base-${player}`}>
+          {base}
+        </span>
+      </span>
+      <span className="px-2 py-1">
+        ⚡{' '}
+        <span className="font-semibold text-zinc-100" data-testid={`energy-${player}`}>
+          {energy}
+        </span>
+      </span>
     </span>
   );
 }
@@ -1120,6 +1199,8 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
     players,
     deckSize: format.deckSize,
     openingHandSize: format.openingHandSize,
+    baseTotal: format.baseTotal,
+    startingEnergy: format.startingEnergy,
     cardKinds: kinds,
   };
 }
