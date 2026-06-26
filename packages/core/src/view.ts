@@ -22,6 +22,8 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       discard: [...player.discard],
       exile: [...player.exile],
       battlefield: [...player.battlefield],
+      base: player.base,
+      energy: player.energy,
     };
   }
 
@@ -33,10 +35,13 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       discard: [...viewerState.discard],
       exile: [...viewerState.exile],
       battlefield: [...viewerState.battlefield],
+      base: viewerState.base,
+      energy: viewerState.energy,
     },
     opponents,
     activePlayer: state.activePlayer,
     phase: state.phase,
     turn: state.turn,
+    winner: state.winner,
   };
 }

@@ -14,6 +14,10 @@ export interface SetupOpts {
   readonly openingHandSize: number;
   /** Card kinds cycled through each generated deck. */
   readonly cardKinds: readonly CardKind[];
+  /** Starting base (life total) for each player. Defaults to 20. */
+  readonly baseTotal?: number;
+  /** Starting energy for each player. Defaults to 0. */
+  readonly startingEnergy?: number;
 }
 
 /** Create the deterministic Phase 1 initial state for a set of generated decks. */
@@ -30,6 +34,9 @@ export function createInitialState(opts: SetupOpts): State {
     throw new Error('createInitialState requires valid deck and opening hand sizes');
   }
 
+  const baseTotal = opts.baseTotal ?? 20;
+  const startingEnergy = opts.startingEnergy ?? 0;
+
   let rng = seedRng(opts.seed);
   const players = {} as Record<PlayerId, Player>;
 
@@ -44,11 +51,13 @@ export function createInitialState(opts: SetupOpts): State {
       discard: [],
       exile: [],
       battlefield: [],
+      base: baseTotal,
+      energy: startingEnergy,
     };
   }
 
   const activePlayer = opts.players[0] as PlayerId;
-  let state: State = { rng, players, activePlayer, phase: 'start', turn: 1 };
+  let state: State = { rng, players, activePlayer, phase: 'start', turn: 1, winner: null };
 
   for (const playerId of opts.players) {
     for (let draws = 0; draws < opts.openingHandSize; draws += 1) {

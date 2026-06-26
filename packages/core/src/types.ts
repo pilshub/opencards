@@ -44,6 +44,10 @@ export interface Player {
   readonly exile: Zone;
   /** Public battlefield. */
   readonly battlefield: Zone;
+  /** Player's base (life total). Public information. */
+  readonly base: number;
+  /** Player's current energy pool. Public information. */
+  readonly energy: number;
 }
 
 /** Canonical match state. */
@@ -58,17 +62,38 @@ export interface State {
   readonly phase: Phase;
   /** One-based turn number. */
   readonly turn: number;
+  /** Winner of the match, null while the game is live. */
+  readonly winner: PlayerId | null;
 }
 
-/** Player command accepted by the Phase 1 dispatcher. */
-export type Command = { readonly type: 'drawCard'; readonly player: PlayerId };
+/** Player command accepted by the dispatcher. */
+export type Command =
+  | { readonly type: 'drawCard'; readonly player: PlayerId }
+  | { readonly type: 'endPhase'; readonly player: PlayerId }
+  | { readonly type: 'endTurn'; readonly player: PlayerId };
 
-/** Durable event emitted by successful Phase 1 commands. */
-export type Event = {
-  readonly type: 'cardDrawn';
-  readonly player: PlayerId;
-  readonly instance: CardInstance;
-};
+/** Durable event emitted by successful commands. */
+export type Event =
+  | { readonly type: 'cardDrawn'; readonly player: PlayerId; readonly instance: CardInstance }
+  | {
+      readonly type: 'phaseAdvanced';
+      readonly player: PlayerId;
+      readonly from: Phase;
+      readonly to: Phase;
+    }
+  | {
+      readonly type: 'turnEnded';
+      readonly player: PlayerId;
+      readonly nextPlayer: PlayerId;
+      readonly turn: number;
+    }
+  | {
+      readonly type: 'resourceGained';
+      readonly player: PlayerId;
+      readonly resource: 'energy';
+      readonly amount: number;
+    }
+  | { readonly type: 'gameEnded'; readonly winner: PlayerId };
 
 /** Structured validation issue returned instead of throwing for invalid commands. */
 export interface ValidationIssue {
@@ -120,6 +145,10 @@ export interface OwnPlayerView {
   readonly exile: readonly CardInstance[];
   /** Public battlefield. */
   readonly battlefield: readonly CardInstance[];
+  /** Base (life total). Public information. */
+  readonly base: number;
+  /** Current energy pool. Public information. */
+  readonly energy: number;
 }
 
 /** Opponent projection visible to the viewer. */
@@ -136,6 +165,10 @@ export interface OpponentPlayerView {
   readonly exile: readonly CardInstance[];
   /** Public battlefield. */
   readonly battlefield: readonly CardInstance[];
+  /** Base (life total). Public information. */
+  readonly base: number;
+  /** Current energy pool. Public information. */
+  readonly energy: number;
 }
 
 /** Hidden-information-safe state projection for one viewer. */
@@ -150,4 +183,6 @@ export interface PlayerView {
   readonly phase: Phase;
   /** One-based turn number. */
   readonly turn: number;
+  /** Winner of the match, null while the game is live. */
+  readonly winner: PlayerId | null;
 }

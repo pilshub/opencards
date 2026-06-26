@@ -22,6 +22,7 @@ const state: State = {
   activePlayer: p1,
   phase: 'main',
   turn: 2,
+  winner: null,
   players: {
     [p1]: {
       id: p1,
@@ -30,6 +31,8 @@ const state: State = {
       discard: [{ id: 'p1-c02' as CardInstanceId, kind: 'public-discard' }],
       exile: [],
       battlefield: [{ id: 'p1-c03' as CardInstanceId, kind: 'public-battlefield' }],
+      base: 17,
+      energy: 2,
     },
     [p2]: {
       id: p2,
@@ -44,6 +47,8 @@ const state: State = {
       discard: [{ id: 'p2-c04' as CardInstanceId, kind: 'public-opponent-discard' }],
       exile: [],
       battlefield: [{ id: 'p2-c05' as CardInstanceId, kind: 'public-opponent-battlefield' }],
+      base: 12,
+      energy: 4,
     },
   },
 };
@@ -57,7 +62,7 @@ describe('getView', () => {
     expect(JSON.stringify(view.viewer.deck)).toContain('ember-deck-secret');
   });
 
-  it('masks opponent hand entries to {masked: true} only — no id, no kind', () => {
+  it('masks opponent hand entries to {masked: true} only - no id, no kind', () => {
     const view = getView(state, p1);
     const opponentHand = view.opponents[p2]?.hand ?? [];
 
@@ -100,5 +105,15 @@ describe('getView', () => {
     expect(JSON.stringify(p1View)).toContain('public-opponent-discard');
     expect(JSON.stringify(p2View)).toContain('public-battlefield');
     expect(JSON.stringify(p2View)).toContain('public-discard');
+  });
+
+  it('exposes base, energy, and winner for the viewer and opponents', () => {
+    const view = getView({ ...state, winner: p2 }, p1);
+
+    expect(view.viewer.base).toBe(17);
+    expect(view.viewer.energy).toBe(2);
+    expect(view.opponents[p2]?.base).toBe(12);
+    expect(view.opponents[p2]?.energy).toBe(4);
+    expect(view.winner).toBe(p2);
   });
 });

@@ -34,6 +34,26 @@ describe('createInitialState', () => {
     expect(state.players[p2]?.deck).toHaveLength(8);
   });
 
+  it('defaults base to 20, energy to 0, and winner to null', () => {
+    const state = createInitialState(opts(7));
+
+    expect(state.players[p1]?.base).toBe(20);
+    expect(state.players[p1]?.energy).toBe(0);
+    expect(state.players[p2]?.base).toBe(20);
+    expect(state.players[p2]?.energy).toBe(0);
+    expect(state.winner).toBeNull();
+  });
+
+  it('applies configured baseTotal and startingEnergy to each player', () => {
+    const state = createInitialState({ ...opts(7), baseTotal: 30, startingEnergy: 3 });
+
+    expect(state.players[p1]?.base).toBe(30);
+    expect(state.players[p1]?.energy).toBe(3);
+    expect(state.players[p2]?.base).toBe(30);
+    expect(state.players[p2]?.energy).toBe(3);
+    expect(state.winner).toBeNull();
+  });
+
   it('rejects invalid setup inputs', () => {
     expect(() => createInitialState({ ...opts(1), players: [] })).toThrow(/at least one player/);
     expect(() => createInitialState({ ...opts(1), cardKinds: [] })).toThrow(/card kind/);

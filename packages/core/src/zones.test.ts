@@ -13,6 +13,7 @@ const state = (): State => ({
   activePlayer: p1,
   phase: 'start',
   turn: 1,
+  winner: null,
   players: {
     [p1]: {
       id: p1,
@@ -21,6 +22,8 @@ const state = (): State => ({
       discard: [],
       exile: [],
       battlefield: [],
+      base: 20,
+      energy: 0,
     },
   },
 });
