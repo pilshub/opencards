@@ -15,6 +15,7 @@ export const CORE_VERSION = '0.0.0' as const;
 export type {
   CardInstanceId,
   CardKind,
+  CardSpec,
   Command,
   HiddenDeckView,
   MaskedCardView,

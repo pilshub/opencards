@@ -1,6 +1,15 @@
 /** Branded player identifier used as a stable state key. */
 export type PlayerId = string & { readonly __brand: 'PlayerId' };
 
+/** Engine-local card specification defining type, cost, and optional combat stats. */
+export interface CardSpec {
+  readonly kind: CardKind;
+  readonly type: 'unit' | 'tactic';
+  readonly cost: number; // energy cost, integer >= 0
+  readonly attack?: number; // units only
+  readonly health?: number; // units only
+}
+
 /** Stable card definition identifier. */
 export type CardKind = string;
 
@@ -64,13 +73,16 @@ export interface State {
   readonly turn: number;
   /** Winner of the match, null while the game is live. */
   readonly winner: PlayerId | null;
+  /** Card database indexed by kind. Part of canonical state and replay hash. */
+  readonly cards: Record<CardKind, CardSpec>;
 }
 
 /** Player command accepted by the dispatcher. */
 export type Command =
   | { readonly type: 'drawCard'; readonly player: PlayerId }
   | { readonly type: 'endPhase'; readonly player: PlayerId }
-  | { readonly type: 'endTurn'; readonly player: PlayerId };
+  | { readonly type: 'endTurn'; readonly player: PlayerId }
+  | { readonly type: 'playCard'; readonly player: PlayerId; readonly instance: CardInstanceId };
 
 /** Durable event emitted by successful commands. */
 export type Event =
@@ -93,7 +105,19 @@ export type Event =
       readonly resource: 'energy';
       readonly amount: number;
     }
-  | { readonly type: 'gameEnded'; readonly winner: PlayerId };
+  | { readonly type: 'gameEnded'; readonly winner: PlayerId }
+  | {
+      readonly type: 'cardPlayed';
+      readonly player: PlayerId;
+      readonly instance: CardInstance;
+      readonly to: ZoneId;
+    }
+  | {
+      readonly type: 'resourceSpent';
+      readonly player: PlayerId;
+      readonly resource: 'energy';
+      readonly amount: number;
+    };
 
 /** Structured validation issue returned instead of throwing for invalid commands. */
 export interface ValidationIssue {

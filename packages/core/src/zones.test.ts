@@ -14,6 +14,7 @@ const state = (): State => ({
   phase: 'start',
   turn: 1,
   winner: null,
+  cards: {},
   players: {
     [p1]: {
       id: p1,

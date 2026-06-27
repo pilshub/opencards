@@ -1,5 +1,6 @@
 import type {
   ApplyResult,
+  CardInstanceId,
   Command,
   Event,
   Phase,
@@ -37,6 +38,26 @@ const gameOver = (): ValidationIssue => ({
 const phaseIsFinal = (): ValidationIssue => ({
   code: 'PHASE_IS_FINAL',
   message: 'Current phase is already the final phase; use endTurn instead',
+});
+
+const phaseNotMain = (): ValidationIssue => ({
+  code: 'PHASE_NOT_MAIN',
+  message: 'playCard requires the main phase',
+});
+
+const cardNotInHand = (instance: string): ValidationIssue => ({
+  code: 'CARD_NOT_IN_HAND',
+  message: `Card instance not found in player hand: ${instance}`,
+});
+
+const unknownCard = (kind: string): ValidationIssue => ({
+  code: 'UNKNOWN_CARD',
+  message: `No card spec found for kind: ${kind}`,
+});
+
+const insufficientEnergy = (have: number, need: number): ValidationIssue => ({
+  code: 'INSUFFICIENT_ENERGY',
+  message: `Insufficient energy: have ${have}, need ${need}`,
 });
 
 /** Phase order for advancement. */
@@ -173,6 +194,51 @@ export function apply(state: State, command: Command): ApplyResult {
       ];
 
       const checked = checkWin(nextState, events);
+      return { state: checked.state, events: checked.events, issues: [] };
+    }
+
+    case 'playCard': {
+      const player = state.players[command.player];
+
+      if (player === undefined) {
+        return { state, events: [], issues: [unknownPlayer(command.player)] };
+      }
+
+      if (command.player !== state.activePlayer) {
+        return { state, events: [], issues: [notActivePlayer(command.player)] };
+      }
+
+      if (state.phase !== 'main') {
+        return { state, events: [], issues: [phaseNotMain()] };
+      }
+
+      const card = player.hand.find((c) => c.id === (command.instance as CardInstanceId));
+      if (card === undefined) {
+        return { state, events: [], issues: [cardNotInHand(command.instance)] };
+      }
+
+      const spec = state.cards[card.kind];
+      if (spec === undefined) {
+        return { state, events: [], issues: [unknownCard(card.kind)] };
+      }
+
+      if (player.energy < spec.cost) {
+        return { state, events: [], issues: [insufficientEnergy(player.energy, spec.cost)] };
+      }
+
+      const destination = spec.type === 'unit' ? 'battlefield' : 'discard';
+      const updatedPlayer = { ...player, energy: player.energy - spec.cost };
+      const stateWithEnergy: State = {
+        ...state,
+        players: { ...state.players, [command.player]: updatedPlayer },
+      };
+      const stateWithMove = moveCard(stateWithEnergy, card, 'hand', destination);
+
+      const events: readonly Event[] = [
+        { type: 'resourceSpent', player: command.player, resource: 'energy', amount: spec.cost },
+        { type: 'cardPlayed', player: command.player, instance: card, to: destination },
+      ];
+      const checked = checkWin(stateWithMove, events);
       return { state: checked.state, events: checked.events, issues: [] };
     }
 

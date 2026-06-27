@@ -1,4 +1,12 @@
-import type { CardInstance, CardInstanceId, CardKind, Player, PlayerId, State } from './types.js';
+import type {
+  CardInstance,
+  CardInstanceId,
+  CardKind,
+  CardSpec,
+  Player,
+  PlayerId,
+  State,
+} from './types.js';
 import { seedRng } from './rng.js';
 import { fisherYates } from './shuffle.js';
 
@@ -18,6 +26,8 @@ export interface SetupOpts {
   readonly baseTotal?: number;
   /** Starting energy for each player. Defaults to 0. */
   readonly startingEnergy?: number;
+  /** Card specs to populate the card database. Omit for an empty database. */
+  readonly cards?: readonly CardSpec[];
 }
 
 /** Create the deterministic Phase 1 initial state for a set of generated decks. */
@@ -57,7 +67,11 @@ export function createInitialState(opts: SetupOpts): State {
   }
 
   const activePlayer = opts.players[0] as PlayerId;
-  let state: State = { rng, players, activePlayer, phase: 'start', turn: 1, winner: null };
+  const cards: Record<CardKind, CardSpec> = {};
+  for (const spec of opts.cards ?? []) {
+    cards[spec.kind] = spec;
+  }
+  let state: State = { rng, players, activePlayer, phase: 'start', turn: 1, winner: null, cards };
 
   for (const playerId of opts.players) {
     for (let draws = 0; draws < opts.openingHandSize; draws += 1) {

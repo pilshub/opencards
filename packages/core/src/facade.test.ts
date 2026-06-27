@@ -23,7 +23,7 @@ const validEnvelope: ReplayEnvelopeV1 = {
     { type: 'drawCard', player: p2 },
     { type: 'drawCard', player: p1 },
   ],
-  finalStateHash: '6d446b7fc4b7c1cc54148f34567a5d9165829c10d0c6b7b2f63929fc9bc3e67f',
+  finalStateHash: '9e4324515d7a4af3d16bb671cf346d82b21711ccf90cc003d2d3accc247be89c',
 };
 
 describe('core facade', () => {

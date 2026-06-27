@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CardKind, PlayerId } from './types.js';
+import type { CardKind, CardSpec, PlayerId } from './types.js';
 import { hashState } from './hash.js';
 import { createInitialState, type SetupOpts } from './setup.js';
 
@@ -58,5 +58,22 @@ describe('createInitialState', () => {
     expect(() => createInitialState({ ...opts(1), players: [] })).toThrow(/at least one player/);
     expect(() => createInitialState({ ...opts(1), cardKinds: [] })).toThrow(/card kind/);
     expect(() => createInitialState({ ...opts(1), openingHandSize: 13 })).toThrow(/valid deck/);
+  });
+
+  it('indexes opts.cards into State.cards by kind', () => {
+    const specs: CardSpec[] = [
+      { kind: 'unit-a' as CardKind, type: 'unit', cost: 2, attack: 3, health: 4 },
+      { kind: 'tactic-a' as CardKind, type: 'tactic', cost: 1 },
+    ];
+    const state = createInitialState({ ...opts(42), cards: specs });
+
+    expect(state.cards['unit-a']).toEqual(specs[0]);
+    expect(state.cards['tactic-a']).toEqual(specs[1]);
+    expect(Object.keys(state.cards).sort()).toEqual(['tactic-a', 'unit-a']);
+  });
+
+  it('sets State.cards to empty object when opts.cards is omitted', () => {
+    const state = createInitialState(opts(42));
+    expect(state.cards).toEqual({});
   });
 });

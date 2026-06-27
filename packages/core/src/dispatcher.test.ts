@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CardInstanceId, Command, PlayerId, State } from './types.js';
+import type { CardInstanceId, CardSpec, Command, PlayerId, State } from './types.js';
 import { apply, checkWin } from './dispatcher.js';
 import { seedRng } from './rng.js';
 
@@ -13,6 +13,7 @@ const baseState = (): State => ({
   phase: 'start',
   turn: 1,
   winner: null,
+  cards: {},
   players: {
     [p1]: {
       id: p1,
@@ -205,6 +206,197 @@ describe('apply', () => {
     expect(turnResult.issues).toEqual([
       { code: 'GAME_OVER', message: 'The game has already ended' },
     ]);
+  });
+});
+
+// --- playCard ---
+
+const unitSpec: CardSpec = { kind: 'unit-a', type: 'unit', cost: 2, attack: 3, health: 4 };
+const tacticSpec: CardSpec = { kind: 'tactic-a', type: 'tactic', cost: 1 };
+
+const playCardBaseState = (): State => ({
+  ...baseState(),
+  phase: 'main',
+  cards: { 'unit-a': unitSpec, 'tactic-a': tacticSpec },
+  players: {
+    [p1]: {
+      id: p1,
+      hand: [
+        { id: 'p1-c00' as CardInstanceId, kind: 'unit-a' },
+        { id: 'p1-c01' as CardInstanceId, kind: 'tactic-a' },
+      ],
+      deck: [],
+      discard: [],
+      exile: [],
+      battlefield: [],
+      base: 20,
+      energy: 5,
+    },
+    [p2]: {
+      id: p2,
+      hand: [],
+      deck: [],
+      discard: [],
+      exile: [],
+      battlefield: [],
+      base: 20,
+      energy: 0,
+    },
+  },
+});
+
+describe('playCard', () => {
+  it('plays a unit: moves hand->battlefield, decrements energy, emits resourceSpent then cardPlayed to battlefield', () => {
+    const state = playCardBaseState();
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.state.players[p1]?.energy).toBe(3); // 5 - 2
+    expect(result.state.players[p1]?.hand).toEqual([{ id: 'p1-c01', kind: 'tactic-a' }]);
+    expect(result.state.players[p1]?.battlefield).toEqual([{ id: 'p1-c00', kind: 'unit-a' }]);
+    expect(result.events).toEqual([
+      { type: 'resourceSpent', player: p1, resource: 'energy', amount: 2 },
+      {
+        type: 'cardPlayed',
+        player: p1,
+        instance: { id: 'p1-c00', kind: 'unit-a' },
+        to: 'battlefield',
+      },
+    ]);
+  });
+
+  it('plays a tactic: moves hand->discard, decrements energy, emits resourceSpent then cardPlayed to discard', () => {
+    const state = playCardBaseState();
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c01' as CardInstanceId,
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.state.players[p1]?.energy).toBe(4); // 5 - 1
+    expect(result.state.players[p1]?.hand).toEqual([{ id: 'p1-c00', kind: 'unit-a' }]);
+    expect(result.state.players[p1]?.discard).toEqual([{ id: 'p1-c01', kind: 'tactic-a' }]);
+    expect(result.events).toEqual([
+      { type: 'resourceSpent', player: p1, resource: 'energy', amount: 1 },
+      {
+        type: 'cardPlayed',
+        player: p1,
+        instance: { id: 'p1-c01', kind: 'tactic-a' },
+        to: 'discard',
+      },
+    ]);
+  });
+
+  it('returns INSUFFICIENT_ENERGY and leaves state unchanged when energy < cost', () => {
+    const state: State = {
+      ...playCardBaseState(),
+      players: {
+        ...playCardBaseState().players,
+        [p1]: { ...playCardBaseState().players[p1]!, energy: 1 },
+      },
+    };
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'INSUFFICIENT_ENERGY', message: 'Insufficient energy: have 1, need 2' },
+    ]);
+  });
+
+  it('returns PHASE_NOT_MAIN when phase is not main', () => {
+    const state: State = { ...playCardBaseState(), phase: 'start' };
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'PHASE_NOT_MAIN', message: 'playCard requires the main phase' },
+    ]);
+  });
+
+  it('returns CARD_NOT_IN_HAND for an instance not in the player hand', () => {
+    const state = playCardBaseState();
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c99' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'CARD_NOT_IN_HAND', message: 'Card instance not found in player hand: p1-c99' },
+    ]);
+  });
+
+  it('returns UNKNOWN_CARD when no spec exists for the card kind', () => {
+    const state: State = { ...playCardBaseState(), cards: {} };
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'UNKNOWN_CARD', message: 'No card spec found for kind: unit-a' },
+    ]);
+  });
+
+  it('returns NOT_ACTIVE_PLAYER when a non-active player attempts to play', () => {
+    const state = playCardBaseState();
+    const result = apply(state, {
+      type: 'playCard',
+      player: p2,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'NOT_ACTIVE_PLAYER', message: 'Player is not the active player: p2' },
+    ]);
+  });
+
+  it('returns GAME_OVER when winner is already set', () => {
+    const state: State = { ...playCardBaseState(), winner: p2 };
+    const result = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([{ code: 'GAME_OVER', message: 'The game has already ended' }]);
+  });
+
+  it('returns UNKNOWN_PLAYER when player does not exist', () => {
+    const state = playCardBaseState();
+    const result = apply(state, {
+      type: 'playCard',
+      player: unknown,
+      instance: 'p1-c00' as CardInstanceId,
+    });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([{ code: 'UNKNOWN_PLAYER', message: 'Unknown player: missing' }]);
   });
 });
 

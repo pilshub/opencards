@@ -23,6 +23,7 @@ const state: State = {
   phase: 'main',
   turn: 2,
   winner: null,
+  cards: {},
   players: {
     [p1]: {
       id: p1,
