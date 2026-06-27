@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { LayoutGroup, motion } from 'framer-motion';
 import type {
+  CardInstanceId,
+  CardSpec,
   Command,
   PlayerId,
   PlayerView,
@@ -548,6 +550,9 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     onDraw={drawCard}
                     onEndPhase={endPhase}
                     onEndTurn={endTurn}
+                    onPlayCard={(player, instance) =>
+                      applyPlayerCommand({ type: 'playCard', player, instance })
+                    }
                   />
                 </div>
               ) : (
@@ -657,6 +662,7 @@ function BoardView({
   onDraw,
   onEndPhase,
   onEndTurn,
+  onPlayCard,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
@@ -667,6 +673,7 @@ function BoardView({
   readonly onDraw: (player: PlayerId) => void;
   readonly onEndPhase: (player: PlayerId) => void;
   readonly onEndTurn: (player: PlayerId) => void;
+  readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
 }): JSX.Element {
   const opponent = otherPlayer(viewer);
   const opponentView = view.opponents[opponent]!;
@@ -702,7 +709,11 @@ function BoardView({
             <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
           </div>
           <FannedHand masked cardCount={opponentView.hand.length} owner={opponent} />
-          <BattlefieldStrip count={opponentView.battlefield.length} />
+          <BattlefieldStrip
+            units={opponentView.battlefield}
+            owner={opponent}
+            cardRegistry={cardRegistry}
+          />
         </div>
       </BoardArea>
 
@@ -722,6 +733,7 @@ function BoardView({
         onDraw={onDraw}
         onEndPhase={onEndPhase}
         onEndTurn={onEndTurn}
+        onPlayCard={onPlayCard}
         view={view}
         viewer={viewer}
       />
@@ -739,6 +751,7 @@ function PlayerArea({
   onDraw,
   onEndPhase,
   onEndTurn,
+  onPlayCard,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
@@ -749,6 +762,7 @@ function PlayerArea({
   readonly onDraw: (player: PlayerId) => void;
   readonly onEndPhase: (player: PlayerId) => void;
   readonly onEndTurn: (player: PlayerId) => void;
+  readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
 }): JSX.Element {
   const isActive = viewer === activePlayer;
   const hasWinner = view.winner !== null;
@@ -836,7 +850,16 @@ function PlayerArea({
         </div>
       </div>
 
-      <FannedHand cards={view.viewer.hand} owner={viewer} cardRegistry={cardRegistry} />
+      <FannedHand
+        cards={view.viewer.hand}
+        owner={viewer}
+        cardRegistry={cardRegistry}
+        activePlayer={activePlayer}
+        phase={view.phase}
+        hasWinner={view.winner !== null}
+        viewerEnergy={view.viewer.energy}
+        onPlayCard={(instanceId) => onPlayCard(viewer, instanceId)}
+      />
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
         <div className="relative">
@@ -852,7 +875,11 @@ function PlayerArea({
         <CountBadge label="Battlefield" value={view.viewer.battlefield.length} />
       </div>
 
-      <BattlefieldStrip count={view.viewer.battlefield.length} />
+      <BattlefieldStrip
+        units={view.viewer.battlefield}
+        owner={viewer}
+        cardRegistry={cardRegistry}
+      />
 
       {issues.length > 0 ? (
         <div className="mt-4 rounded border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-100">
@@ -909,6 +936,11 @@ type FannedHandProps =
       readonly owner: PlayerId;
       readonly cardRegistry: Map<string, CardDefinition>;
       readonly masked?: false;
+      readonly activePlayer: PlayerId;
+      readonly phase: string;
+      readonly hasWinner: boolean;
+      readonly viewerEnergy: number;
+      readonly onPlayCard: (instanceId: CardInstanceId) => void;
     }
   | {
       readonly cardCount: number;
@@ -952,10 +984,15 @@ function FannedHand(props: FannedHandProps): JSX.Element {
           // show their real name/type/cost. The opponent path never gets the
           // registry, so hidden information stays masked.
           const def = props.cardRegistry.get(card.kind);
+          const isPlayDisabled =
+            props.activePlayer !== props.owner ||
+            props.phase !== 'main' ||
+            props.hasWinner ||
+            (def?.cost.energy ?? 999) > props.viewerEnergy;
 
           return (
             <motion.li
-              className="-mx-3 list-none"
+              className={`-mx-3 list-none${isPlayDisabled ? ' opacity-50' : ''}`}
               data-testid={`own-card-${props.owner}`}
               key={card.id}
               layout
@@ -966,6 +1003,14 @@ function FannedHand(props: FannedHandProps): JSX.Element {
               transition={{ type: 'spring', stiffness: 260, damping: 24 }}
             >
               <Card kind={card.kind} name={def?.name} type={def?.type} cost={def?.cost.energy} />
+              <button
+                data-testid={`play-card-${card.id}`}
+                disabled={isPlayDisabled}
+                type="button"
+                onClick={() => props.onPlayCard(card.id)}
+              >
+                Play
+              </button>
             </motion.li>
           );
         })}
@@ -987,10 +1032,36 @@ function fanTransform(
   };
 }
 
-function BattlefieldStrip({ count }: { readonly count: number }): JSX.Element {
+type BattlefieldUnit = PlayerView['viewer']['battlefield'][number];
+
+function BattlefieldStrip({
+  units,
+  owner,
+  cardRegistry,
+}: {
+  readonly units: readonly BattlefieldUnit[];
+  readonly owner: PlayerId;
+  readonly cardRegistry: Map<string, CardDefinition>;
+}): JSX.Element {
   return (
-    <div className="mt-4 rounded border border-[color:var(--oc-border)] bg-zinc-950/80 px-3 py-3 text-sm text-zinc-400">
-      Battlefield: {count === 0 ? 'empty' : count}
+    <div
+      className="mt-4 rounded border border-[color:var(--oc-border)] bg-zinc-950/80 px-3 py-3 text-sm text-zinc-400"
+      data-testid={`battlefield-${owner}`}
+    >
+      {units.length === 0 ? (
+        <span>No units</span>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {units.map((unit) => {
+            const def = cardRegistry.get(unit.kind);
+            return (
+              <li data-testid={`bf-unit-${unit.id}`} key={unit.id} className="list-none">
+                <Card kind={unit.kind} name={def?.name} type={def?.type} cost={def?.cost.energy} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1190,10 +1261,17 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
   const format = loadFormat();
   // Custom cards drive the playable kinds; fall back to the built-in set so
   // cardKinds is never empty (the engine cycles the deck over these kinds).
-  const kinds =
-    customCards && customCards.length > 0
-      ? customCards.map((card) => card.kind)
-      : Object.keys(BUILTIN_DEFINITIONS);
+  const activeDefs =
+    customCards && customCards.length > 0 ? customCards : Object.values(BUILTIN_DEFINITIONS);
+  const kinds = activeDefs.map((card) => card.kind);
+  const cards: CardSpec[] = activeDefs.map((def) => {
+    const base: CardSpec = { kind: def.kind, type: def.type, cost: def.cost.energy };
+    const withAttack =
+      def.stats?.attack !== undefined ? { ...base, attack: def.stats.attack } : base;
+    const withHealth =
+      def.stats?.health !== undefined ? { ...withAttack, health: def.stats.health } : withAttack;
+    return withHealth;
+  });
   return {
     seed,
     players,
@@ -1202,6 +1280,7 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
     baseTotal: format.baseTotal,
     startingEnergy: format.startingEnergy,
     cardKinds: kinds,
+    cards,
   };
 }
 

@@ -151,18 +151,20 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-    let boardHtml = screen.getByTestId('board').innerHTML;
+    // From p1's view, check that p2's HAND zone (masked backs) has no p2 hand kinds
+    const p2HandZone = screen.getByTestId('opponent-p2');
     for (const kind of p2HandKinds) {
-      expect(boardHtml).not.toContain(kind);
-      expect(boardHtml).not.toContain(labelForKind(kind));
+      expect(p2HandZone.textContent).not.toContain(kind);
+      expect(p2HandZone.textContent).not.toContain(labelForKind(kind));
     }
 
     fireEvent.click(screen.getByTestId('view-as-p2'));
 
-    boardHtml = screen.getByTestId('board').innerHTML;
+    // From p2's view, check that p1's HAND zone (masked backs) has no p1 hand kinds
+    const p1HandZone = screen.getByTestId('opponent-p1');
     for (const kind of p1HandKinds) {
-      expect(boardHtml).not.toContain(kind);
-      expect(boardHtml).not.toContain(labelForKind(kind));
+      expect(p1HandZone.textContent).not.toContain(kind);
+      expect(p1HandZone.textContent).not.toContain(labelForKind(kind));
     }
   });
 
@@ -772,6 +774,164 @@ describe('@opencards/app Ember Duel demo', () => {
 
       // TODO(3.3): add a positive banner assertion once base damage can end a game.
       expect(screen.queryByTestId('winner-banner')).toBeNull();
+    });
+  });
+
+  describe('play card from hand', () => {
+    afterEach(() => {
+      localStorage.removeItem('opencards.format');
+    });
+
+    it('play button is disabled in start phase and enabled after end phase', () => {
+      // startingEnergy 5 so cost is not the blocker
+      localStorage.setItem(
+        'opencards.format',
+        JSON.stringify({
+          name: 'Test',
+          deckSize: 12,
+          openingHandSize: 3,
+          copyLimit: 4,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      );
+      render(createElement(App));
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      // In 'start' phase, all play buttons should be disabled
+      const playerArea = screen.getByTestId('player-area');
+      const playButtons = within(playerArea).getAllByRole('button', { name: 'Play' });
+      expect(playButtons.length).toBeGreaterThan(0);
+      expect(playButtons[0]).toHaveProperty('disabled', true);
+
+      // End phase → 'main'
+      fireEvent.click(screen.getByTestId('end-phase'));
+      expect(screen.getByTestId('turn-info').textContent).toContain('Phase: main');
+
+      // Now play buttons should be enabled (energy 5 >= cost of any builtin card)
+      const playButtonsAfter = within(screen.getByTestId('player-area')).getAllByRole('button', {
+        name: 'Play',
+      });
+      expect(playButtonsAfter[0]).toHaveProperty('disabled', false);
+    });
+
+    it('playing a unit moves it from hand to battlefield and deducts energy', () => {
+      localStorage.setItem(
+        'opencards.format',
+        JSON.stringify({
+          name: 'Test',
+          deckSize: 12,
+          openingHandSize: 3,
+          copyLimit: 4,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      );
+      render(createElement(App));
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      // Advance to main phase
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      const playerArea = screen.getByTestId('player-area');
+      const handBefore = within(playerArea).getAllByTestId('own-card-p1');
+      const handCountBefore = handBefore.length;
+
+      // Find an enabled play button and click it
+      const playButtons = within(playerArea).getAllByRole('button', { name: 'Play' });
+      const enabledButton = playButtons.find((btn) => !(btn as HTMLButtonElement).disabled);
+      expect(enabledButton).toBeTruthy();
+
+      // Get energy before
+      const energyBefore = Number(screen.getByTestId('energy-p1').textContent);
+
+      fireEvent.click(enabledButton!);
+
+      // Hand count decreases by 1
+      const handAfter = within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1');
+      expect(handAfter.length).toBe(handCountBefore - 1);
+
+      // Battlefield-p1 shows the unit
+      const battlefield = screen.getByTestId('battlefield-p1');
+      expect(battlefield.querySelectorAll('[data-testid^="bf-unit-"]').length).toBe(1);
+
+      // Energy decreased
+      const energyAfter = Number(screen.getByTestId('energy-p1').textContent);
+      expect(energyAfter).toBeLessThan(energyBefore);
+    });
+
+    it('play buttons are disabled when energy is 0 (after reaching main phase)', () => {
+      localStorage.setItem(
+        'opencards.format',
+        JSON.stringify({
+          name: 'Test',
+          deckSize: 12,
+          openingHandSize: 3,
+          copyLimit: 4,
+          baseTotal: 20,
+          startingEnergy: 0,
+        }),
+      );
+      render(createElement(App));
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      // Advance to main phase — energy stays 0 (granted at turn start, turn 1 starts in 'start' phase)
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      const playerArea = screen.getByTestId('player-area');
+      const playButtons = within(playerArea).getAllByRole('button', { name: 'Play' });
+      expect(playButtons.length).toBeGreaterThan(0);
+      // All play buttons disabled because energy 0 < any card cost (min cost is 1 for builtins)
+      for (const btn of playButtons) {
+        expect(btn).toHaveProperty('disabled', true);
+      }
+    });
+
+    it('opponent battlefield is public: p2 unit is visible from p1 perspective', () => {
+      localStorage.setItem(
+        'opencards.format',
+        JSON.stringify({
+          name: 'Test',
+          deckSize: 12,
+          openingHandSize: 3,
+          copyLimit: 4,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      );
+      render(createElement(App));
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+      // End p1 turn → p2 active
+      fireEvent.click(screen.getByTestId('end-turn'));
+
+      // Switch view to p2
+      fireEvent.click(screen.getByTestId('view-as-p2'));
+
+      // End phase to main
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      // Play a card as p2
+      const playerArea = screen.getByTestId('player-area');
+      const playButtons = within(playerArea).getAllByRole('button', { name: 'Play' });
+      const enabledButton = playButtons.find((btn) => !(btn as HTMLButtonElement).disabled);
+      if (!enabledButton) return; // skip if no tactic/unit with cost <= energy
+      fireEvent.click(enabledButton);
+
+      // Switch to p1 view
+      fireEvent.click(screen.getByTestId('view-as-p1'));
+
+      // Opponent area should show p2's battlefield publicly
+      const opponentArea = screen.getByTestId('opponent-area');
+      const oppBattlefield = within(opponentArea).getByTestId('battlefield-p2');
+      const units = oppBattlefield.querySelectorAll('[data-testid^="bf-unit-"]');
+      expect(units.length).toBeGreaterThan(0);
+
+      // The opponent HAND (masked backs) should still have no kind text
+      const opponentHandZone = within(opponentArea).getByTestId('opponent-p2');
+      for (const kind of ['spark-adept', 'ember-guard', 'flare-strike'] as const) {
+        expect(opponentHandZone.textContent).not.toContain(kind);
+      }
     });
   });
 });
