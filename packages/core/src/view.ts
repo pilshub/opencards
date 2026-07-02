@@ -21,7 +21,7 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       deck: { count: player.deck.length },
       discard: [...player.discard],
       exile: [...player.exile],
-      battlefield: [...player.battlefield],
+      battlefield: player.battlefield.map((u) => ({ ...u })),
       base: player.base,
       energy: player.energy,
     };
@@ -34,7 +34,7 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       deck: [...viewerState.deck],
       discard: [...viewerState.discard],
       exile: [...viewerState.exile],
-      battlefield: [...viewerState.battlefield],
+      battlefield: viewerState.battlefield.map((u) => ({ ...u })),
       base: viewerState.base,
       energy: viewerState.energy,
     },

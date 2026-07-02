@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CardInstanceId, CardKind, PlayerId, PlayerView, State } from './types.js';
+import type { CardInstanceId, CardKind, PlayerId, PlayerView, State, Unit } from './types.js';
 import { seedRng } from './rng.js';
 import { getView } from './view.js';
 
@@ -16,6 +16,14 @@ const _goodOwnHandElement: PlayerView['viewer']['hand'][number] = {
   id: 'x' as CardInstanceId,
   kind: 'visible' as CardKind,
 };
+const _goodBattlefieldUnit: Unit = {
+  id: 'x' as CardInstanceId,
+  kind: 'unit-a' as CardKind,
+  attack: 2,
+  health: 3,
+  damage: 0,
+  exhausted: false,
+};
 
 const state: State = {
   rng: seedRng(3),
@@ -31,7 +39,16 @@ const state: State = {
       deck: [{ id: 'p1-c01' as CardInstanceId, kind: 'ember-deck-secret' }],
       discard: [{ id: 'p1-c02' as CardInstanceId, kind: 'public-discard' }],
       exile: [],
-      battlefield: [{ id: 'p1-c03' as CardInstanceId, kind: 'public-battlefield' }],
+      battlefield: [
+        {
+          id: 'p1-c03' as CardInstanceId,
+          kind: 'public-battlefield',
+          attack: 2,
+          health: 3,
+          damage: 0,
+          exhausted: false,
+        } satisfies Unit,
+      ],
       base: 17,
       energy: 2,
     },
@@ -47,7 +64,16 @@ const state: State = {
       ],
       discard: [{ id: 'p2-c04' as CardInstanceId, kind: 'public-opponent-discard' }],
       exile: [],
-      battlefield: [{ id: 'p2-c05' as CardInstanceId, kind: 'public-opponent-battlefield' }],
+      battlefield: [
+        {
+          id: 'p2-c05' as CardInstanceId,
+          kind: 'public-opponent-battlefield',
+          attack: 1,
+          health: 2,
+          damage: 0,
+          exhausted: false,
+        } satisfies Unit,
+      ],
       base: 12,
       energy: 4,
     },
@@ -59,6 +85,7 @@ describe('getView', () => {
     const view = getView(state, p1);
     expect(_goodOwnHandElement.kind).toBe('visible');
     expect(_goodMasked.masked).toBe(true);
+    expect(_goodBattlefieldUnit.exhausted).toBe(false);
     expect(JSON.stringify(view.viewer.hand)).toContain('ember-secret');
     expect(JSON.stringify(view.viewer.deck)).toContain('ember-deck-secret');
   });

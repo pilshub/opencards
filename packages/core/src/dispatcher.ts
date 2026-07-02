@@ -1,11 +1,13 @@
 import type {
   ApplyResult,
+  CardInstance,
   CardInstanceId,
   Command,
   Event,
   Phase,
   PlayerId,
   State,
+  Unit,
   ValidationIssue,
 } from './types.js';
 import { moveCard } from './zones.js';
@@ -58,6 +60,26 @@ const unknownCard = (kind: string): ValidationIssue => ({
 const insufficientEnergy = (have: number, need: number): ValidationIssue => ({
   code: 'INSUFFICIENT_ENERGY',
   message: `Insufficient energy: have ${have}, need ${need}`,
+});
+
+const phaseNotCombat = (): ValidationIssue => ({
+  code: 'PHASE_NOT_COMBAT',
+  message: 'attack requires the combat phase',
+});
+
+const attackerNotFound = (attacker: string): ValidationIssue => ({
+  code: 'ATTACKER_NOT_FOUND',
+  message: `Attacker not found in player battlefield: ${attacker}`,
+});
+
+const unitExhausted = (attacker: string): ValidationIssue => ({
+  code: 'UNIT_EXHAUSTED',
+  message: `Unit is exhausted and cannot attack: ${attacker}`,
+});
+
+const invalidTarget = (target: string): ValidationIssue => ({
+  code: 'INVALID_TARGET',
+  message: `Invalid attack target: ${target}`,
 });
 
 /** Phase order for advancement. */
@@ -176,9 +198,13 @@ export function apply(state: State, command: Command): ApplyResult {
       const nextPlayer = playerIds[(currentIdx + 1) % playerIds.length] as PlayerId;
       const newTurn = state.turn + 1;
 
-      // Grant +1 energy to the incoming active player.
+      // Grant +1 energy to the incoming active player and ready all their units.
       const nextPlayerState = state.players[nextPlayer]!;
-      const updatedNextPlayer = { ...nextPlayerState, energy: nextPlayerState.energy + 1 };
+      const updatedNextPlayer = {
+        ...nextPlayerState,
+        energy: nextPlayerState.energy + 1,
+        battlefield: nextPlayerState.battlefield.map((u) => ({ ...u, exhausted: false })),
+      };
 
       const nextState: State = {
         ...state,
@@ -226,19 +252,202 @@ export function apply(state: State, command: Command): ApplyResult {
         return { state, events: [], issues: [insufficientEnergy(player.energy, spec.cost)] };
       }
 
-      const destination = spec.type === 'unit' ? 'battlefield' : 'discard';
+      if (spec.type === 'unit') {
+        // Remove card from hand, append a Unit to battlefield (exhausted: summoning sickness).
+        const newUnit: Unit = {
+          id: card.id,
+          kind: card.kind,
+          attack: spec.attack ?? 0,
+          health: spec.health ?? 1,
+          damage: 0,
+          exhausted: true,
+        };
+        const updatedPlayer = {
+          ...player,
+          energy: player.energy - spec.cost,
+          hand: player.hand.filter((c) => c.id !== card.id),
+          battlefield: [...player.battlefield, newUnit],
+        };
+        const nextState: State = {
+          ...state,
+          players: { ...state.players, [command.player]: updatedPlayer },
+        };
+        const events: readonly Event[] = [
+          { type: 'resourceSpent', player: command.player, resource: 'energy', amount: spec.cost },
+          { type: 'cardPlayed', player: command.player, instance: card, to: 'battlefield' },
+        ];
+        const checked = checkWin(nextState, events);
+        return { state: checked.state, events: checked.events, issues: [] };
+      }
+
+      // Tactic branch: move hand->discard, pay energy.
       const updatedPlayer = { ...player, energy: player.energy - spec.cost };
       const stateWithEnergy: State = {
         ...state,
         players: { ...state.players, [command.player]: updatedPlayer },
       };
-      const stateWithMove = moveCard(stateWithEnergy, card, 'hand', destination);
+      const stateWithMove = moveCard(stateWithEnergy, card, 'hand', 'discard');
 
       const events: readonly Event[] = [
         { type: 'resourceSpent', player: command.player, resource: 'energy', amount: spec.cost },
-        { type: 'cardPlayed', player: command.player, instance: card, to: destination },
+        { type: 'cardPlayed', player: command.player, instance: card, to: 'discard' },
       ];
       const checked = checkWin(stateWithMove, events);
+      return { state: checked.state, events: checked.events, issues: [] };
+    }
+
+    case 'attack': {
+      const player = state.players[command.player];
+
+      if (player === undefined) {
+        return { state, events: [], issues: [unknownPlayer(command.player)] };
+      }
+
+      if (command.player !== state.activePlayer) {
+        return { state, events: [], issues: [notActivePlayer(command.player)] };
+      }
+
+      if (state.phase !== 'combat') {
+        return { state, events: [], issues: [phaseNotCombat()] };
+      }
+
+      const attackerUnit = player.battlefield.find((u) => u.id === command.attacker);
+      if (attackerUnit === undefined) {
+        return { state, events: [], issues: [attackerNotFound(command.attacker)] };
+      }
+
+      if (attackerUnit.exhausted) {
+        return { state, events: [], issues: [unitExhausted(command.attacker)] };
+      }
+
+      // Determine opponent (two-player assumption).
+      const opponentId = (Object.keys(state.players) as PlayerId[]).find(
+        (id) => id !== command.player,
+      ) as PlayerId;
+      const opponent = state.players[opponentId]!;
+
+      let events: readonly Event[] = [
+        {
+          type: 'attackDeclared',
+          player: command.player,
+          attacker: command.attacker,
+          target: command.target,
+        },
+      ];
+
+      // Apply damage and exhaust the attacker.
+      let updatedAttacker: Unit = { ...attackerUnit, exhausted: true };
+      let updatedOpponent = opponent;
+
+      if (command.target === 'base') {
+        // Damage the opponent's base.
+        updatedOpponent = { ...opponent, base: opponent.base - attackerUnit.attack };
+        events = [
+          ...events,
+          { type: 'damageDealt', target: 'base', amount: attackerUnit.attack, owner: opponentId },
+        ];
+      } else {
+        // Unit-vs-unit: find defender in opponent battlefield.
+        const defenderUnit = opponent.battlefield.find((u) => u.id === command.target);
+        if (defenderUnit === undefined) {
+          return { state, events: [], issues: [invalidTarget(command.target)] };
+        }
+
+        // Both take damage simultaneously.
+        updatedAttacker = {
+          ...updatedAttacker,
+          damage: attackerUnit.damage + defenderUnit.attack,
+        };
+        const updatedDefender: Unit = {
+          ...defenderUnit,
+          damage: defenderUnit.damage + attackerUnit.attack,
+        };
+
+        // Emit damage events: defender gets damaged first, then attacker.
+        events = [
+          ...events,
+          {
+            type: 'damageDealt',
+            target: defenderUnit.id,
+            amount: attackerUnit.attack,
+            owner: opponentId,
+          },
+          {
+            type: 'damageDealt',
+            target: attackerUnit.id,
+            amount: defenderUnit.attack,
+            owner: command.player,
+          },
+        ];
+
+        // Replace defender in opponent's battlefield.
+        updatedOpponent = {
+          ...opponent,
+          battlefield: opponent.battlefield.map((u) =>
+            u.id === defenderUnit.id ? updatedDefender : u,
+          ),
+        };
+      }
+
+      // Update attacker in player's battlefield.
+      const updatedPlayerState = {
+        ...player,
+        battlefield: player.battlefield.map((u) =>
+          u.id === attackerUnit.id ? updatedAttacker : u,
+        ),
+      };
+
+      let nextState: State = {
+        ...state,
+        players: {
+          ...state.players,
+          [command.player]: updatedPlayerState,
+          [opponentId]: updatedOpponent,
+        },
+      };
+
+      // Deaths: remove units with damage >= health, send CardInstance to owner's discard.
+      const processDeaths = (
+        s: State,
+        evts: readonly Event[],
+      ): { state: State; events: readonly Event[] } => {
+        let current = s;
+        let currentEvts = evts;
+
+        for (const [ownerId, ownerPlayer] of Object.entries(current.players) as [
+          PlayerId,
+          (typeof current.players)[PlayerId],
+        ][]) {
+          const dead = ownerPlayer.battlefield.filter((u) => u.damage >= u.health);
+          if (dead.length === 0) continue;
+
+          const surviving = ownerPlayer.battlefield.filter((u) => u.damage < u.health);
+          const deadInstances: CardInstance[] = dead.map((u) => ({ id: u.id, kind: u.kind }));
+          const updatedOwner = {
+            ...ownerPlayer,
+            battlefield: surviving,
+            discard: [...ownerPlayer.discard, ...deadInstances],
+          };
+          current = {
+            ...current,
+            players: { ...current.players, [ownerId]: updatedOwner },
+          };
+          for (const inst of deadInstances) {
+            currentEvts = [
+              ...currentEvts,
+              { type: 'unitDestroyed' as const, owner: ownerId as PlayerId, instance: inst },
+            ];
+          }
+        }
+
+        return { state: current, events: currentEvts };
+      };
+
+      const afterDeaths = processDeaths(nextState, events);
+      nextState = afterDeaths.state;
+      events = afterDeaths.events;
+
+      const checked = checkWin(nextState, events);
       return { state: checked.state, events: checked.events, issues: [] };
     }
 

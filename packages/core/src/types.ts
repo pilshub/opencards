@@ -1,6 +1,22 @@
 /** Branded player identifier used as a stable state key. */
 export type PlayerId = string & { readonly __brand: 'PlayerId' };
 
+/** Battlefield unit with combat state. */
+export interface Unit {
+  /** Stable instance id matching the underlying CardInstance. */
+  readonly id: CardInstanceId;
+  /** Card definition id. */
+  readonly kind: CardKind;
+  /** Attack power from the card spec (0 if not specified). */
+  readonly attack: number;
+  /** Maximum health from the card spec (>=1). */
+  readonly health: number;
+  /** Damage taken so far; unit dies when damage >= health. */
+  readonly damage: number;
+  /** Cannot attack when true (summoning sickness or already attacked this turn). */
+  readonly exhausted: boolean;
+}
+
 /** Engine-local card specification defining type, cost, and optional combat stats. */
 export interface CardSpec {
   readonly kind: CardKind;
@@ -51,8 +67,8 @@ export interface Player {
   readonly discard: Zone;
   /** Public exile pile. */
   readonly exile: Zone;
-  /** Public battlefield. */
-  readonly battlefield: Zone;
+  /** Public battlefield with combat state. */
+  readonly battlefield: readonly Unit[];
   /** Player's base (life total). Public information. */
   readonly base: number;
   /** Player's current energy pool. Public information. */
@@ -82,7 +98,13 @@ export type Command =
   | { readonly type: 'drawCard'; readonly player: PlayerId }
   | { readonly type: 'endPhase'; readonly player: PlayerId }
   | { readonly type: 'endTurn'; readonly player: PlayerId }
-  | { readonly type: 'playCard'; readonly player: PlayerId; readonly instance: CardInstanceId };
+  | { readonly type: 'playCard'; readonly player: PlayerId; readonly instance: CardInstanceId }
+  | {
+      readonly type: 'attack';
+      readonly player: PlayerId;
+      readonly attacker: CardInstanceId;
+      readonly target: CardInstanceId | 'base';
+    };
 
 /** Durable event emitted by successful commands. */
 export type Event =
@@ -117,6 +139,23 @@ export type Event =
       readonly player: PlayerId;
       readonly resource: 'energy';
       readonly amount: number;
+    }
+  | {
+      readonly type: 'attackDeclared';
+      readonly player: PlayerId;
+      readonly attacker: CardInstanceId;
+      readonly target: CardInstanceId | 'base';
+    }
+  | {
+      readonly type: 'damageDealt';
+      readonly target: CardInstanceId | 'base';
+      readonly amount: number;
+      readonly owner: PlayerId;
+    }
+  | {
+      readonly type: 'unitDestroyed';
+      readonly owner: PlayerId;
+      readonly instance: CardInstance;
     };
 
 /** Structured validation issue returned instead of throwing for invalid commands. */
@@ -167,8 +206,8 @@ export interface OwnPlayerView {
   readonly discard: readonly CardInstance[];
   /** Public exile pile. */
   readonly exile: readonly CardInstance[];
-  /** Public battlefield. */
-  readonly battlefield: readonly CardInstance[];
+  /** Public battlefield with combat state (public information). */
+  readonly battlefield: readonly Unit[];
   /** Base (life total). Public information. */
   readonly base: number;
   /** Current energy pool. Public information. */
@@ -187,8 +226,8 @@ export interface OpponentPlayerView {
   readonly discard: readonly CardInstance[];
   /** Public exile pile. */
   readonly exile: readonly CardInstance[];
-  /** Public battlefield. */
-  readonly battlefield: readonly CardInstance[];
+  /** Public battlefield with combat state (public information). */
+  readonly battlefield: readonly Unit[];
   /** Base (life total). Public information. */
   readonly base: number;
   /** Current energy pool. Public information. */

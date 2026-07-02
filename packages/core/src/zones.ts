@@ -1,18 +1,26 @@
 import type { CardInstance, State, Zone, ZoneId } from './types.js';
 
-/** Move a card instance between zones, preserving order and appending to the destination. */
-export function moveCard(state: State, instance: CardInstance, from: ZoneId, to: ZoneId): State {
+/** Zone identifiers that hold CardInstance arrays (excludes battlefield which holds Unit[]). */
+export type CardZoneId = Exclude<ZoneId, 'battlefield'>;
+
+/** Move a card instance between CardInstance zones, preserving order and appending to the destination. */
+export function moveCard(
+  state: State,
+  instance: CardInstance,
+  from: CardZoneId,
+  to: CardZoneId,
+): State {
   if (from === to) {
     return state;
   }
 
   for (const player of Object.values(state.players)) {
-    const fromZone = player[from];
+    const fromZone: Zone = player[from];
     const sourceIndex = fromZone.findIndex((card) => card.id === instance.id);
 
     if (sourceIndex >= 0) {
       const nextFrom = fromZone.filter((card) => card.id !== instance.id);
-      const nextTo = [...player[to], instance];
+      const nextTo: Zone = [...player[to], instance];
       const nextPlayer = { ...player, [from]: nextFrom, [to]: nextTo };
       return {
         ...state,
