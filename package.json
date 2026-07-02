@@ -24,6 +24,7 @@
     "build:app": "npm run build --workspace=@opencards/core && npm run build:web --workspace=@opencards/app",
     "test": "npm run --workspaces --if-present test",
     "test:watch": "vitest",
+    "verify:app": "npm run build:app && npm run test:e2e --workspace=@opencards/app",
     "verify:replay": "node scripts/verify-replay.mjs",
     "verify:hidden-info": "node scripts/verify-hidden-info.mjs",
     "verify:coverage-overall": "node scripts/check-overall-coverage.mjs",

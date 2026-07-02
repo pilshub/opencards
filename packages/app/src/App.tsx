@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { LayoutGroup, motion } from 'framer-motion';
+import { LayoutGroup, MotionConfig, motion } from 'framer-motion';
 import type {
   CardInstanceId,
   CardSpec,
   Command,
+  EngineEffect,
   PlayerId,
   PlayerView,
   ReplayEnvelopeV1,
   SetupOpts,
+  StackItem,
+  TargetSelector,
   ValidationIssue,
   ViewerHandle,
 } from '@opencards/core';
-import { applyCommand, hashState, replayEnvelope, startMatch, viewMatch } from '@opencards/core';
+import {
+  applyCommand,
+  hashState,
+  legalCommands,
+  replayEnvelope,
+  startMatch,
+  viewMatch,
+} from '@opencards/core';
 import type { CardDefinition, GameFormat } from '@opencards/schema';
 import { DEFAULT_FORMAT, validateCardDefinition, validateFormat } from '@opencards/schema';
 import { Card } from './components/Card.js';
@@ -128,6 +138,58 @@ type PasteValidationState =
   | { readonly status: 'missing-fields'; readonly message: string }
   | { readonly status: 'valid-shape'; readonly message: string };
 
+type PlayCardCommand = Extract<Command, { readonly type: 'playCard' }>;
+type AttackCommand = Extract<Command, { readonly type: 'attack' }>;
+type ChooseTargetCommand = Extract<Command, { readonly type: 'chooseTarget' }>;
+type ResolveStackCommand = Extract<Command, { readonly type: 'resolveStack' }>;
+type TargetCommand = AttackCommand | ChooseTargetCommand;
+
+type TargetCommandDraft =
+  | {
+      readonly type: 'attack';
+      readonly player: PlayerId;
+      readonly attacker: CardInstanceId;
+    }
+  | {
+      readonly type: 'chooseTarget';
+      readonly player: PlayerId;
+      readonly source: CardInstanceId;
+    };
+
+type TargetingState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'awaitingTarget'; readonly draft: TargetCommandDraft }
+  | { readonly status: 'confirming'; readonly command: TargetCommand };
+
+type CommandEvent =
+  | { readonly type: 'cardDrawn'; readonly player: PlayerId }
+  | { readonly type: 'phaseAdvanced'; readonly player: PlayerId }
+  | { readonly type: 'turnEnded'; readonly player: PlayerId }
+  | { readonly type: 'cardPlayed'; readonly player: PlayerId }
+  | {
+      readonly type: 'targetChosen';
+      readonly player: PlayerId;
+      readonly target: CardInstanceId | 'base';
+    }
+  | { readonly type: 'stackResolved'; readonly player: PlayerId }
+  | {
+      readonly type: 'attackDeclared';
+      readonly player: PlayerId;
+      readonly target: CardInstanceId | 'base';
+    };
+
+type EventLogEntry = {
+  readonly index: number;
+  readonly commandIndex: number;
+  readonly event: CommandEvent;
+};
+
+type ReplayArtifacts = {
+  readonly events: readonly EventLogEntry[];
+  readonly hash: string;
+  readonly issues: readonly ValidationIssue[];
+};
+
 export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX.Element {
   const [appView, setAppView] = useState<AppView>('play');
   const [seed, setSeed] = useState(42);
@@ -148,15 +210,27 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     'idle',
   );
   const [useCustomCards, setUseCustomCards] = useState(false);
-  const [attackSelection, setAttackSelection] = useState<CardInstanceId | null>(null);
+  const [targeting, setTargeting] = useState<TargetingState>({ status: 'idle' });
   const exportedEnvelopeRef = useRef<HTMLTextAreaElement | null>(null);
-  const currentHash = useMemo(() => (match ? hashState(match.p1View) : 'no match'), [match]);
+  const replayArtifacts = useMemo<ReplayArtifacts | null>(
+    () => (match ? deriveReplayArtifacts(match) : null),
+    [match],
+  );
+  const hashMatch = useMemo<'match' | 'mismatch'>(
+    () => (match && replayArtifacts ? deriveHashMatch(match, replayArtifacts.hash) : 'match'),
+    [match, replayArtifacts],
+  );
+  const currentHash = replayArtifacts?.hash ?? 'no match';
   const rawLimit = matchLogLimit ?? 50;
   const logLimit = Number.isFinite(rawLimit) ? Math.max(1, rawLimit) : 50;
 
   const activeFormat = loadFormat();
   const savedCustomCards = loadCustomCards();
   const hasCustomCards = savedCustomCards.length > 0;
+  const viewerLegalCommands = useMemo<readonly Command[]>(
+    () => (match ? legalCommands(match.handles[viewer]!) : []),
+    [match, viewer],
+  );
 
   function startNewGame(): void {
     const setupOpts = defaultSetup
@@ -171,7 +245,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setExportMeta(null);
     setCopyStatus('idle');
     setPasteStatus('idle');
-    setAttackSelection(null);
+    setTargeting({ status: 'idle' });
   }
 
   function resetGame(): void {
@@ -183,7 +257,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setExportMeta(null);
     setCopyStatus('idle');
     setPasteStatus('idle');
-    setAttackSelection(null);
+    setTargeting({ status: 'idle' });
   }
 
   function applyPlayerCommand(command: Command): void {
@@ -191,57 +265,74 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
       return;
     }
 
+    if (!hasLegalCommand(legalCommands(match.handles[command.player]!), command)) {
+      return;
+    }
+
     const result = applyCommand(match.handles[command.player]!, command);
-    const nextMatch = project(
-      match.handles,
-      match.seed,
-      match.setupOpts,
-      result.issues.length === 0 ? [...match.commands, command] : match.commands,
-    );
+    const acceptedCommands =
+      result.issues.length === 0 ? [...match.commands, command] : match.commands;
+    const nextMatch = project(match.handles, match.seed, match.setupOpts, acceptedCommands);
     setMatch(nextMatch);
     setErrors((current) => ({ ...current, [command.player]: result.issues }));
-    if (nextMatch.p1View.winner !== null) {
-      setAttackSelection(null);
-    }
+    setTargeting(
+      result.issues.length === 0 && nextMatch.p1View.winner === null
+        ? nextTargetingAfterCommand(nextMatch, command)
+        : { status: 'idle' },
+    );
   }
 
   function drawCard(player: PlayerId): void {
-    applyPlayerCommand({ type: 'drawCard', player });
+    applyFirstLegalCommand(player, (command) => command.type === 'drawCard');
   }
 
-  function endPhase(player: PlayerId): void {
-    applyPlayerCommand({ type: 'endPhase', player });
-  }
+  function applyFirstLegalCommand(
+    player: PlayerId,
+    predicate: (command: Command) => boolean,
+  ): void {
+    if (!match) {
+      return;
+    }
 
-  function endTurn(player: PlayerId): void {
-    applyPlayerCommand({ type: 'endTurn', player });
+    const command = legalCommands(match.handles[player]!).find(predicate);
+    if (command !== undefined) {
+      applyPlayerCommand(command);
+    }
   }
 
   function flipViewer(): void {
-    setAttackSelection(null);
+    setTargeting({ status: 'idle' });
     setViewer((current) => (current === p1 ? p2 : p1));
   }
 
   function selectViewer(player: PlayerId): void {
-    setAttackSelection(null);
+    setTargeting({ status: 'idle' });
     setViewer(player);
   }
 
   function onSelectAttacker(instanceId: CardInstanceId): void {
-    setAttackSelection(instanceId);
-  }
-
-  function onAttackTarget(target: CardInstanceId | 'base'): void {
-    if (attackSelection === null) {
+    if (!match) {
       return;
     }
 
-    applyPlayerCommand({ type: 'attack', player: viewer, attacker: attackSelection, target });
-    setAttackSelection(null);
+    const legal = legalCommands(match.handles[viewer]!);
+    if (!legal.some((command) => command.type === 'attack' && command.attacker === instanceId)) {
+      return;
+    }
+
+    setTargeting({
+      status: 'awaitingTarget',
+      draft: { type: 'attack', player: viewer, attacker: instanceId },
+    });
   }
 
-  function onCancelAttack(): void {
-    setAttackSelection(null);
+  function onTargetCommand(command: TargetCommand): void {
+    setTargeting({ status: 'confirming', command });
+    applyPlayerCommand(command);
+  }
+
+  function onCancelTargeting(): void {
+    setTargeting({ status: 'idle' });
   }
 
   useEffect(() => {
@@ -371,248 +462,251 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        <header className="flex flex-col gap-3 border-b border-[color:var(--oc-border)] pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal">OpenCards · Ember Duel demo</h1>
-            <p className="mt-1 text-sm text-zinc-400">
-              Hot-seat facade demo using projected player views.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <nav className="flex rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1">
-              <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold ${
-                  appView === 'play'
-                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                    : 'text-zinc-300 hover:bg-zinc-800'
-                }`}
-                data-testid="nav-play"
-                type="button"
-                onClick={() => setAppView('play')}
-              >
-                Play
-              </button>
-              <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold ${
-                  appView === 'create'
-                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                    : 'text-zinc-300 hover:bg-zinc-800'
-                }`}
-                data-testid="nav-create"
-                type="button"
-                onClick={() => setAppView('create')}
-              >
-                Create
-              </button>
-              <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold ${
-                  appView === 'rules'
-                    ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                    : 'text-zinc-300 hover:bg-zinc-800'
-                }`}
-                data-testid="nav-rules"
-                type="button"
-                onClick={() => setAppView('rules')}
-              >
-                Rules
-              </button>
-            </nav>
-            <div
-              className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
-              title={currentHash}
-            >
-              <span className="mr-2 text-zinc-500">hash</span>
-              <span data-testid="state-hash">{shortHash(currentHash)}</span>
+    <MotionConfig reducedMotion="user">
+      <main className="min-h-screen bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+          <header className="flex flex-col gap-3 border-b border-[color:var(--oc-border)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-normal">
+                OpenCards · Ember Duel demo
+              </h1>
+              <p className="mt-1 text-sm text-zinc-400">
+                Hot-seat facade demo using projected player views.
+              </p>
             </div>
-          </div>
-        </header>
-
-        {appView === 'create' ? <CardCreator /> : null}
-
-        {appView === 'rules' ? <FormatEditor /> : null}
-
-        {appView === 'play' ? (
-          <>
-            <section className="flex flex-col gap-3 rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-4 sm:flex-row sm:items-end">
-              <div className="flex flex-col gap-1">
-                <label className="flex max-w-36 flex-col gap-1 text-sm text-zinc-300">
-                  Seed
-                  <input
-                    className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2 text-zinc-100"
-                    type="number"
-                    value={seed}
-                    onChange={(event) => setSeed(Number(event.currentTarget.value))}
-                  />
-                </label>
-                <p className="text-xs text-zinc-400">Live seed (next New Game): {seed}</p>
-                {match ? (
-                  <p className="text-xs text-zinc-300" data-testid="match-seed">
-                    Match seed (active): {match.seed}
-                  </p>
-                ) : null}
-                <p className="text-xs text-zinc-400" data-testid="active-format">
-                  {`Format: ${activeFormat.name} · deck ${String(activeFormat.deckSize)} · hand ${String(activeFormat.openingHandSize)}`}
-                </p>
-                <label className="flex items-center gap-2 text-xs text-zinc-300">
-                  <input
-                    checked={useCustomCards && hasCustomCards}
-                    data-testid="use-custom-cards"
-                    disabled={!hasCustomCards}
-                    type="checkbox"
-                    onChange={(event) => setUseCustomCards(event.currentTarget.checked)}
-                  />
-                  Use my cards
-                </label>
-              </div>
-              <button
-                className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
-                type="button"
-                onClick={startNewGame}
-              >
-                New Game
-              </button>
-              <button
-                className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
-                data-testid="reset-game"
-                type="button"
-                onClick={resetGame}
-              >
-                Reset
-              </button>
-              {match ? (
+            <div className="flex items-center gap-3">
+              <nav className="flex rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1">
                 <button
-                  className="rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-4 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-500/25"
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'play'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-play"
                   type="button"
-                  onClick={exportEnvelope}
+                  onClick={() => setAppView('play')}
                 >
-                  Export envelope
+                  Play
                 </button>
-              ) : null}
-              <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
-            </section>
+                <button
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'create'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-create"
+                  type="button"
+                  onClick={() => setAppView('create')}
+                >
+                  Create
+                </button>
+                <button
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'rules'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-rules"
+                  type="button"
+                  onClick={() => setAppView('rules')}
+                >
+                  Rules
+                </button>
+              </nav>
+              <div
+                className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
+                title={currentHash}
+              >
+                <span className="mr-2 text-zinc-500">hash</span>
+                <span data-testid="state-hash">{shortHash(currentHash)}</span>
+              </div>
+            </div>
+          </header>
 
-            {exportedEnvelope ? (
-              <section className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-4">
-                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">Exported replay envelope</h2>
-                    <p className="text-sm text-zinc-400">
-                      finalStateHash is computed by replaying through the public facade.
+          {appView === 'create' ? <CardCreator /> : null}
+
+          {appView === 'rules' ? <FormatEditor /> : null}
+
+          {appView === 'play' ? (
+            <>
+              <section className="flex flex-col gap-3 rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-4 sm:flex-row sm:items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="flex max-w-36 flex-col gap-1 text-sm text-zinc-300">
+                    Seed
+                    <input
+                      className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2 text-zinc-100"
+                      type="number"
+                      value={seed}
+                      onChange={(event) => setSeed(Number(event.currentTarget.value))}
+                    />
+                  </label>
+                  <p className="text-xs text-zinc-400">Live seed (next New Game): {seed}</p>
+                  {match ? (
+                    <p className="text-xs text-zinc-300" data-testid="match-seed">
+                      Match seed (active): {match.seed}
                     </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
-                      type="button"
-                      onClick={() => void copyEnvelope()}
-                    >
-                      Copy
-                    </button>
-                    <button
-                      className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
-                      data-testid="clear-export"
-                      type="button"
-                      onClick={clearExportedEnvelope}
-                    >
-                      Clear
-                    </button>
-                  </div>
+                  ) : null}
+                  <p className="text-xs text-zinc-400" data-testid="active-format">
+                    {`Format: ${activeFormat.name} · deck ${String(activeFormat.deckSize)} · hand ${String(activeFormat.openingHandSize)}`}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-zinc-300">
+                    <input
+                      checked={useCustomCards && hasCustomCards}
+                      data-testid="use-custom-cards"
+                      disabled={!hasCustomCards}
+                      type="checkbox"
+                      onChange={(event) => setUseCustomCards(event.currentTarget.checked)}
+                    />
+                    Use my cards
+                  </label>
                 </div>
-                {exportMeta ? (
-                  <p className="mb-2 text-xs text-zinc-400" data-testid="export-meta">
-                    {`Exported: ${exportMeta.timestamp} \u00b7 ${exportMeta.commandCount} commands \u00b7 seed ${exportMeta.seed}`}
-                  </p>
-                ) : null}
-                <textarea
-                  className="min-h-48 w-full rounded border border-[color:var(--oc-border)] bg-zinc-950 p-3 font-mono text-sm text-zinc-100"
-                  data-testid="export-envelope"
-                  ref={exportedEnvelopeRef}
-                  readOnly
-                  value={exportedEnvelope}
-                />
-                {copyStatus === 'copied' ? (
-                  <p className="mt-2 text-sm text-emerald-200" data-testid="copy-status">
-                    Copied
-                  </p>
-                ) : null}
-                {copyStatus === 'failed' ? (
-                  <p className="mt-2 text-sm text-red-200" data-testid="copy-status">
-                    Select all + Ctrl+C to copy
-                  </p>
-                ) : null}
-              </section>
-            ) : null}
-
-            <section>
-              {match ? (
-                <div className="flex flex-col gap-3">
-                  <div
-                    className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
-                    data-testid="perspective-toggle"
+                <button
+                  className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
+                  type="button"
+                  onClick={startNewGame}
+                >
+                  New Game
+                </button>
+                <button
+                  className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                  data-testid="reset-game"
+                  type="button"
+                  onClick={resetGame}
+                >
+                  Reset
+                </button>
+                {match ? (
+                  <button
+                    className="rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-4 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-500/25"
+                    type="button"
+                    onClick={exportEnvelope}
                   >
-                    {players.map((player) => (
+                    Export envelope
+                  </button>
+                ) : null}
+                <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
+              </section>
+
+              {exportedEnvelope ? (
+                <section className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-4">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold">Exported replay envelope</h2>
+                      <p className="text-sm text-zinc-400">
+                        finalStateHash is computed by replaying through the public facade.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
-                        className={`rounded px-3 py-2 text-sm font-semibold ${
-                          viewer === player
-                            ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                            : 'text-zinc-300 hover:bg-zinc-800'
-                        }`}
-                        data-testid={`view-as-${player}`}
-                        key={player}
+                        className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
                         type="button"
-                        onClick={() => selectViewer(player)}
+                        onClick={() => void copyEnvelope()}
                       >
-                        View as {player}
+                        Copy
                       </button>
-                    ))}
+                      <button
+                        className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm hover:bg-zinc-800"
+                        data-testid="clear-export"
+                        type="button"
+                        onClick={clearExportedEnvelope}
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </div>
-                  <BoardView
-                    activePlayer={match.p1View.activePlayer}
-                    attackSelection={attackSelection}
-                    cardRegistry={buildCardRegistry(useCustomCards && hasCustomCards)}
-                    commands={match.commands}
-                    issues={errors[viewer] ?? []}
-                    view={viewer === p1 ? match.p1View : match.p2View}
-                    viewer={viewer}
-                    onAttackTarget={onAttackTarget}
-                    onCancelAttack={onCancelAttack}
-                    onDraw={drawCard}
-                    onEndPhase={endPhase}
-                    onEndTurn={endTurn}
-                    onPlayCard={(player, instance) =>
-                      applyPlayerCommand({ type: 'playCard', player, instance })
-                    }
-                    onSelectAttacker={onSelectAttacker}
+                  {exportMeta ? (
+                    <p className="mb-2 text-xs text-zinc-400" data-testid="export-meta">
+                      {`Exported: ${exportMeta.timestamp} \u00b7 ${exportMeta.commandCount} commands \u00b7 seed ${exportMeta.seed}`}
+                    </p>
+                  ) : null}
+                  <textarea
+                    className="min-h-48 w-full rounded border border-[color:var(--oc-border)] bg-zinc-950 p-3 font-mono text-sm text-zinc-100"
+                    data-testid="export-envelope"
+                    ref={exportedEnvelopeRef}
+                    readOnly
+                    value={exportedEnvelope}
                   />
-                </div>
-              ) : (
-                <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
-                  Start a new game to create both hot-seat player views.
-                </div>
-              )}
-            </section>
+                  {copyStatus === 'copied' ? (
+                    <p className="mt-2 text-sm text-emerald-200" data-testid="copy-status">
+                      Copied
+                    </p>
+                  ) : null}
+                  {copyStatus === 'failed' ? (
+                    <p className="mt-2 text-sm text-red-200" data-testid="copy-status">
+                      Select all + Ctrl+C to copy
+                    </p>
+                  ) : null}
+                </section>
+              ) : null}
 
-            <MatchLog commands={match?.commands ?? []} limit={logLimit} />
+              <section>
+                {match ? (
+                  <div className="flex flex-col gap-3">
+                    <div
+                      className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
+                      data-testid="perspective-toggle"
+                    >
+                      {players.map((player) => (
+                        <button
+                          className={`rounded px-3 py-2 text-sm font-semibold ${
+                            viewer === player
+                              ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                              : 'text-zinc-300 hover:bg-zinc-800'
+                          }`}
+                          data-testid={`view-as-${player}`}
+                          key={player}
+                          type="button"
+                          onClick={() => selectViewer(player)}
+                        >
+                          View as {player}
+                        </button>
+                      ))}
+                    </div>
+                    <BoardView
+                      activePlayer={match.p1View.activePlayer}
+                      cardRegistry={buildCardRegistry(useCustomCards && hasCustomCards)}
+                      commands={match.commands}
+                      eventLog={replayArtifacts?.events ?? []}
+                      hashMatch={hashMatch}
+                      issues={errors[viewer] ?? []}
+                      legal={viewerLegalCommands}
+                      targeting={targeting}
+                      view={viewer === p1 ? match.p1View : match.p2View}
+                      viewer={viewer}
+                      onCancelTargeting={onCancelTargeting}
+                      onCommand={applyPlayerCommand}
+                      onSelectAttacker={onSelectAttacker}
+                      onTargetCommand={onTargetCommand}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
+                    Start a new game to create both hot-seat player views.
+                  </div>
+                )}
+              </section>
 
-            <ReplayPanel
-              replayInput={replayInput}
-              replay={replay}
-              pasteValidation={pasteValidation}
-              pasteStatus={pasteStatus}
-              onReplayInput={(value) => {
-                setReplayInput(value);
-                setReplay({ status: 'idle' });
-                setPasteValidation(null);
-              }}
-              onVerify={verifyReplay}
-              onPaste={() => void pasteReplayFromClipboard()}
-            />
-          </>
-        ) : null}
-      </div>
-    </main>
+              <MatchLog commands={match?.commands ?? []} limit={logLimit} />
+              <EventLog events={replayArtifacts?.events ?? []} />
+
+              <ReplayPanel
+                replayInput={replayInput}
+                replay={replay}
+                pasteValidation={pasteValidation}
+                pasteStatus={pasteStatus}
+                onReplayInput={(value) => {
+                  setReplayInput(value);
+                  setReplay({ status: 'idle' });
+                  setPasteValidation(null);
+                }}
+                onVerify={verifyReplay}
+                onPaste={() => void pasteReplayFromClipboard()}
+              />
+            </>
+          ) : null}
+        </div>
+      </main>
+    </MotionConfig>
   );
 }
 
@@ -671,6 +765,35 @@ function MatchLog({
   );
 }
 
+function EventLog({ events }: { readonly events: readonly EventLogEntry[] }): JSX.Element {
+  return (
+    <section
+      className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-4"
+      data-testid="event-log"
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Event log</h2>
+        <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">{events.length}</span>
+      </div>
+      {events.length === 0 ? (
+        <p className="text-sm text-zinc-400">No events yet</p>
+      ) : (
+        <ol className="grid max-h-64 gap-2 overflow-y-auto pr-1 text-sm text-zinc-300">
+          {events.map((entry) => (
+            <li
+              className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2"
+              data-testid={`event-${entry.index}`}
+              key={`${entry.index}-${entry.event.type}`}
+            >
+              #{entry.index + 1} - cmd {entry.commandIndex + 1} - {formatEvent(entry.event)}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function TurnInfo({ view }: { readonly view: PlayerView }): JSX.Element {
   return (
     <div
@@ -684,44 +807,110 @@ function TurnInfo({ view }: { readonly view: PlayerView }): JSX.Element {
   );
 }
 
+function StackPanel({
+  stack,
+  legal,
+  targeting,
+  onCommand,
+  onTargetCommand,
+}: {
+  readonly stack: readonly StackItem[];
+  readonly legal: readonly Command[];
+  readonly targeting: TargetingState;
+  readonly onCommand: (command: Command) => void;
+  readonly onTargetCommand: (command: TargetCommand) => void;
+}): JSX.Element {
+  const resolveCommand = legal.find(
+    (command): command is ResolveStackCommand => command.type === 'resolveStack',
+  );
+  const chooseBaseCommand = targetCommandForTarget(legal, targeting, stack, 'base', 'chooseTarget');
+
+  return (
+    <section
+      className="rounded border border-[color:var(--oc-border)] bg-zinc-950/85 p-3 text-sm text-zinc-300"
+      data-testid="stack"
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-zinc-100">Stack</h2>
+        <div className="flex flex-wrap gap-2">
+          {chooseBaseCommand ? (
+            <button
+              className="rounded border border-red-400/60 bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-500/25"
+              data-testid="choose-target-base"
+              type="button"
+              onClick={() => onTargetCommand(chooseBaseCommand)}
+            >
+              Choose base
+            </button>
+          ) : null}
+          {resolveCommand ? (
+            <button
+              className="rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-2 py-1 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
+              data-testid="resolve-stack"
+              type="button"
+              onClick={() => onCommand(resolveCommand)}
+            >
+              Resolve
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {stack.length === 0 ? (
+        <p className="text-xs text-zinc-500">Stack empty</p>
+      ) : (
+        <ol className="grid gap-2">
+          {stack.map((item) => (
+            <li
+              className="rounded border border-[color:var(--oc-border)] bg-zinc-900/80 px-3 py-2"
+              data-testid={`stack-item-${item.source}`}
+              key={item.source}
+            >
+              <div className="font-semibold text-zinc-100">{item.kind}</div>
+              <div className="text-xs text-zinc-400">
+                {item.controller} - {item.target === null ? 'no target' : `target ${item.target}`}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function BoardView({
   viewer,
   view,
   activePlayer,
-  attackSelection,
   cardRegistry,
   commands,
+  eventLog,
+  hashMatch,
   issues,
-  onAttackTarget,
-  onCancelAttack,
-  onDraw,
-  onEndPhase,
-  onEndTurn,
-  onPlayCard,
+  legal,
+  targeting,
+  onCancelTargeting,
+  onCommand,
   onSelectAttacker,
+  onTargetCommand,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
-  readonly attackSelection: CardInstanceId | null;
   readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
+  readonly eventLog: readonly EventLogEntry[];
+  readonly hashMatch: 'match' | 'mismatch';
   readonly issues: readonly ValidationIssue[];
-  readonly onAttackTarget: (target: CardInstanceId | 'base') => void;
-  readonly onCancelAttack: () => void;
-  readonly onDraw: (player: PlayerId) => void;
-  readonly onEndPhase: (player: PlayerId) => void;
-  readonly onEndTurn: (player: PlayerId) => void;
-  readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
+  readonly legal: readonly Command[];
+  readonly targeting: TargetingState;
+  readonly onCancelTargeting: () => void;
+  readonly onCommand: (command: Command) => void;
   readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
+  readonly onTargetCommand: (command: TargetCommand) => void;
 }): JSX.Element {
   const opponent = otherPlayer(viewer);
   const opponentView = view.opponents[opponent]!;
-  const canAttackTarget =
-    attackSelection !== null &&
-    viewer === activePlayer &&
-    view.phase === 'combat' &&
-    view.winner === null;
+  const attackBaseCommand = targetCommandForTarget(legal, targeting, view.stack, 'base', 'attack');
 
   return (
     <div
@@ -753,22 +942,22 @@ function BoardView({
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
-              {canAttackTarget ? (
+              {attackBaseCommand ? (
                 <button
                   className="rounded border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/25"
                   data-testid="attack-target-base"
                   type="button"
-                  onClick={() => onAttackTarget('base')}
+                  onClick={() => onTargetCommand(attackBaseCommand)}
                 >
                   Attack base
                 </button>
               ) : null}
-              {attackSelection !== null ? (
+              {isAwaitingAttackTarget(targeting) ? (
                 <button
                   className="rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
                   data-testid="cancel-attack"
                   type="button"
-                  onClick={onCancelAttack}
+                  onClick={onCancelTargeting}
                 >
                   Cancel
                 </button>
@@ -780,7 +969,7 @@ function BoardView({
             units={opponentView.battlefield}
             owner={opponent}
             cardRegistry={cardRegistry}
-            mode={{ type: 'target', canTarget: canAttackTarget, onAttackTarget }}
+            mode={targetModeForBattlefield(legal, targeting, view.stack, onTargetCommand)}
           />
         </div>
       </BoardArea>
@@ -790,20 +979,52 @@ function BoardView({
         data-testid="board-center"
       >
         <div className="absolute inset-x-6 top-1/2 h-px bg-gradient-to-r from-transparent via-orange-300/35 to-transparent" />
-        <TurnInfo view={view} />
+        <div className="relative grid gap-4 lg:grid-cols-[1fr_1fr]">
+          <TurnInfo view={view} />
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+              <span className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-2 py-1">
+                legal <span data-testid="legal-commands-count">{legal.length}</span>
+              </span>
+              <span
+                className={`rounded border px-2 py-1 ${
+                  hashMatch === 'match'
+                    ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
+                    : 'border-red-400/40 bg-red-500/15 text-red-100'
+                }`}
+                data-testid="hash-match"
+              >
+                {hashMatch}
+              </span>
+              <span
+                className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-2 py-1"
+                data-testid="targeting-state"
+              >
+                {targeting.status}
+              </span>
+            </div>
+            <StackPanel
+              legal={legal}
+              stack={view.stack}
+              targeting={targeting}
+              onCommand={onCommand}
+              onTargetCommand={onTargetCommand}
+            />
+          </div>
+        </div>
       </div>
 
       <PlayerArea
         activePlayer={activePlayer}
         cardRegistry={cardRegistry}
         commands={commands}
+        eventLog={eventLog}
         issues={issues}
-        onDraw={onDraw}
-        onEndPhase={onEndPhase}
-        onEndTurn={onEndTurn}
-        onPlayCard={onPlayCard}
+        legal={legal}
+        targeting={targeting}
+        onCommand={onCommand}
         onSelectAttacker={onSelectAttacker}
-        attackSelection={attackSelection}
+        onTargetCommand={onTargetCommand}
         view={view}
         viewer={viewer}
       />
@@ -815,59 +1036,68 @@ function PlayerArea({
   viewer,
   view,
   activePlayer,
-  attackSelection,
   cardRegistry,
   commands,
+  eventLog,
   issues,
-  onDraw,
-  onEndPhase,
-  onEndTurn,
-  onPlayCard,
+  legal,
+  targeting,
+  onCommand,
   onSelectAttacker,
+  onTargetCommand,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
-  readonly attackSelection: CardInstanceId | null;
   readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
+  readonly eventLog: readonly EventLogEntry[];
   readonly issues: readonly ValidationIssue[];
-  readonly onDraw: (player: PlayerId) => void;
-  readonly onEndPhase: (player: PlayerId) => void;
-  readonly onEndTurn: (player: PlayerId) => void;
-  readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
+  readonly legal: readonly Command[];
+  readonly targeting: TargetingState;
+  readonly onCommand: (command: Command) => void;
   readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
+  readonly onTargetCommand: (command: TargetCommand) => void;
 }): JSX.Element {
   const isActive = viewer === activePlayer;
   const hasWinner = view.winner !== null;
-  const canDraw = view.viewer.deck.length > 0 && !hasWinner;
-  const canUseTurnControls = isActive && !hasWinner;
-  const canSelectAttackers = isActive && view.phase === 'combat' && !hasWinner;
+  const drawCommand = legal.find((command) => command.type === 'drawCard');
+  const endPhaseCommand = legal.find((command) => command.type === 'endPhase');
+  const endTurnCommand = legal.find((command) => command.type === 'endTurn');
+  const playCommands = legal.filter(
+    (command): command is PlayCardCommand => command.type === 'playCard',
+  );
+  const attackCommands = legal.filter(
+    (command): command is AttackCommand => command.type === 'attack',
+  );
   const commandCount = commands.filter((command) => command.player === viewer).length;
+  const drawEventCount = eventLog.filter(
+    ({ event }) => event.type === 'cardDrawn' && event.player === viewer,
+  ).length;
   const [sparkBurstKey, setSparkBurstKey] = useState<number | null>(null);
-  const previousCommandCount = useRef(commandCount);
+  const previousDrawEventCount = useRef(drawEventCount);
   const previousViewer = useRef(viewer);
 
   useEffect(() => {
     if (previousViewer.current !== viewer) {
       previousViewer.current = viewer;
-      previousCommandCount.current = commandCount;
+      previousDrawEventCount.current = drawEventCount;
       setSparkBurstKey(null);
       return undefined;
     }
 
-    if (commandCount > previousCommandCount.current) {
+    if (drawEventCount > previousDrawEventCount.current) {
       const burstKey = Date.now();
       setSparkBurstKey(burstKey);
       const timeoutId = window.setTimeout(() => setSparkBurstKey(null), 650);
-      previousCommandCount.current = commandCount;
+      previousDrawEventCount.current = drawEventCount;
 
       return () => window.clearTimeout(timeoutId);
     }
 
-    previousCommandCount.current = commandCount;
+    previousDrawEventCount.current = drawEventCount;
     return undefined;
-  }, [commandCount, viewer]);
+  }, [drawEventCount, viewer]);
 
   return (
     <BoardArea
@@ -892,33 +1122,39 @@ function PlayerArea({
           ) : null}
           <button
             className={`rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-3 py-2 text-sm text-orange-100 hover:bg-orange-500/25 ${
-              canDraw ? '' : 'cursor-not-allowed opacity-50'
+              drawCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
-            disabled={!canDraw}
+            disabled={!drawCommand}
             type="button"
-            onClick={() => onDraw(viewer)}
+            onClick={() => {
+              if (drawCommand) onCommand(drawCommand);
+            }}
           >
             Draw card
           </button>
           <button
             className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
-              canUseTurnControls ? '' : 'cursor-not-allowed opacity-50'
+              endPhaseCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
             data-testid="end-phase"
-            disabled={!canUseTurnControls}
+            disabled={!endPhaseCommand}
             type="button"
-            onClick={() => onEndPhase(viewer)}
+            onClick={() => {
+              if (endPhaseCommand) onCommand(endPhaseCommand);
+            }}
           >
             End phase
           </button>
           <button
             className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
-              canUseTurnControls ? '' : 'cursor-not-allowed opacity-50'
+              endTurnCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
             data-testid="end-turn"
-            disabled={!canUseTurnControls}
+            disabled={!endTurnCommand}
             type="button"
-            onClick={() => onEndTurn(viewer)}
+            onClick={() => {
+              if (endTurnCommand) onCommand(endTurnCommand);
+            }}
           >
             End turn
           </button>
@@ -929,11 +1165,8 @@ function PlayerArea({
         cards={view.viewer.hand}
         owner={viewer}
         cardRegistry={cardRegistry}
-        activePlayer={activePlayer}
-        phase={view.phase}
-        hasWinner={view.winner !== null}
-        viewerEnergy={view.viewer.energy}
-        onPlayCard={(instanceId) => onPlayCard(viewer, instanceId)}
+        playCommands={playCommands}
+        onCommand={onCommand}
       />
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
@@ -954,12 +1187,14 @@ function PlayerArea({
         units={view.viewer.battlefield}
         owner={viewer}
         cardRegistry={cardRegistry}
-        mode={{
-          type: 'attacker',
-          canSelect: canSelectAttackers,
-          selectedAttacker: attackSelection,
+        mode={playerBattlefieldMode(
+          legal,
+          attackCommands,
+          targeting,
+          view.stack,
           onSelectAttacker,
-        }}
+          onTargetCommand,
+        )}
       />
 
       {issues.length > 0 ? (
@@ -970,6 +1205,101 @@ function PlayerArea({
         </div>
       ) : null}
     </BoardArea>
+  );
+}
+
+function isAwaitingAttackTarget(targeting: TargetingState): boolean {
+  return targeting.status === 'awaitingTarget' && targeting.draft.type === 'attack';
+}
+
+function selectedAttacker(targeting: TargetingState): CardInstanceId | null {
+  if (targeting.status === 'awaitingTarget' && targeting.draft.type === 'attack') {
+    return targeting.draft.attacker;
+  }
+
+  return null;
+}
+
+function playerBattlefieldMode(
+  legal: readonly Command[],
+  attackCommands: readonly AttackCommand[],
+  targeting: TargetingState,
+  stack: readonly StackItem[],
+  onSelectAttacker: (instanceId: CardInstanceId) => void,
+  onTargetCommand: (command: TargetCommand) => void,
+): BattlefieldStripMode {
+  if (targeting.status === 'awaitingTarget' && targeting.draft.type === 'chooseTarget') {
+    return targetModeForBattlefield(legal, targeting, stack, onTargetCommand);
+  }
+
+  return {
+    type: 'attacker',
+    legalAttackCommands: attackCommands,
+    selectedAttacker: selectedAttacker(targeting),
+    onSelectAttacker,
+  };
+}
+
+function targetModeForBattlefield(
+  legal: readonly Command[],
+  targeting: TargetingState,
+  stack: readonly StackItem[],
+  onTargetCommand: (command: TargetCommand) => void,
+): BattlefieldStripMode {
+  if (targeting.status !== 'awaitingTarget') {
+    return { type: 'plain' };
+  }
+
+  return {
+    type: 'target',
+    targetKind: targeting.draft.type,
+    targetCommands: targetCommandsForDraft(legal, targeting, stack),
+    onTargetCommand,
+  };
+}
+
+function targetCommandForTarget(
+  legal: readonly Command[],
+  targeting: TargetingState,
+  stack: readonly StackItem[],
+  target: CardInstanceId | 'base',
+  kind: 'attack' | 'chooseTarget',
+): TargetCommand | null {
+  return (
+    targetCommandsForDraft(legal, targeting, stack).find(
+      (command) => command.type === kind && command.target === target,
+    ) ?? null
+  );
+}
+
+function targetCommandsForDraft(
+  legal: readonly Command[],
+  targeting: TargetingState,
+  stack: readonly StackItem[],
+): readonly TargetCommand[] {
+  if (targeting.status !== 'awaitingTarget') {
+    return [];
+  }
+
+  const draft = targeting.draft;
+
+  if (draft.type === 'attack') {
+    return legal.filter(
+      (command): command is AttackCommand =>
+        command.type === 'attack' &&
+        command.player === draft.player &&
+        command.attacker === draft.attacker,
+    );
+  }
+
+  const top = stack[stack.length - 1];
+  if (top?.source !== draft.source) {
+    return [];
+  }
+
+  return legal.filter(
+    (command): command is ChooseTargetCommand =>
+      command.type === 'chooseTarget' && command.player === draft.player,
   );
 }
 
@@ -1017,11 +1347,8 @@ type FannedHandProps =
       readonly owner: PlayerId;
       readonly cardRegistry: Map<string, CardDefinition>;
       readonly masked?: false;
-      readonly activePlayer: PlayerId;
-      readonly phase: string;
-      readonly hasWinner: boolean;
-      readonly viewerEnergy: number;
-      readonly onPlayCard: (instanceId: CardInstanceId) => void;
+      readonly playCommands: readonly PlayCardCommand[];
+      readonly onCommand: (command: Command) => void;
     }
   | {
       readonly cardCount: number;
@@ -1065,11 +1392,8 @@ function FannedHand(props: FannedHandProps): JSX.Element {
           // show their real name/type/cost. The opponent path never gets the
           // registry, so hidden information stays masked.
           const def = props.cardRegistry.get(card.kind);
-          const isPlayDisabled =
-            props.activePlayer !== props.owner ||
-            props.phase !== 'main' ||
-            props.hasWinner ||
-            (def?.cost.energy ?? 999) > props.viewerEnergy;
+          const playCommand = props.playCommands.find((command) => command.instance === card.id);
+          const isPlayDisabled = playCommand === undefined;
 
           return (
             <motion.li
@@ -1088,7 +1412,9 @@ function FannedHand(props: FannedHandProps): JSX.Element {
                 data-testid={`play-card-${card.id}`}
                 disabled={isPlayDisabled}
                 type="button"
-                onClick={() => props.onPlayCard(card.id)}
+                onClick={() => {
+                  if (playCommand) props.onCommand(playCommand);
+                }}
               >
                 Play
               </button>
@@ -1119,14 +1445,15 @@ type BattlefieldStripMode =
   | { readonly type: 'plain' }
   | {
       readonly type: 'attacker';
-      readonly canSelect: boolean;
+      readonly legalAttackCommands: readonly AttackCommand[];
       readonly selectedAttacker: CardInstanceId | null;
       readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
     }
   | {
       readonly type: 'target';
-      readonly canTarget: boolean;
-      readonly onAttackTarget: (target: CardInstanceId) => void;
+      readonly targetKind: 'attack' | 'chooseTarget';
+      readonly targetCommands: readonly TargetCommand[];
+      readonly onTargetCommand: (command: TargetCommand) => void;
     };
 
 function BattlefieldStrip({
@@ -1156,8 +1483,14 @@ function BattlefieldStrip({
             const remainingHealth = unit.health - unit.damage;
             const isSelected =
               stripMode.type === 'attacker' && stripMode.selectedAttacker === unit.id;
-            const canSelect =
-              stripMode.type === 'attacker' && stripMode.canSelect && unit.exhausted === false;
+            const attackCommand =
+              stripMode.type === 'attacker'
+                ? stripMode.legalAttackCommands.find((command) => command.attacker === unit.id)
+                : undefined;
+            const targetCommand =
+              stripMode.type === 'target'
+                ? stripMode.targetCommands.find((command) => command.target === unit.id)
+                : undefined;
 
             return (
               <li
@@ -1185,26 +1518,26 @@ function BattlefieldStrip({
                 {stripMode.type === 'attacker' ? (
                   <button
                     className={`mt-2 w-full rounded border border-[color:var(--oc-accent)] px-2 py-1 text-xs font-semibold ${
-                      canSelect
+                      attackCommand
                         ? 'bg-[color:var(--oc-accent-soft)] text-orange-100 hover:bg-orange-500/25'
                         : 'cursor-not-allowed text-zinc-500 opacity-60'
                     }`}
                     data-testid={`attack-with-${unit.id}`}
-                    disabled={!canSelect}
+                    disabled={!attackCommand}
                     type="button"
                     onClick={() => stripMode.onSelectAttacker(unit.id)}
                   >
                     Attack
                   </button>
                 ) : null}
-                {stripMode.type === 'target' && stripMode.canTarget ? (
+                {stripMode.type === 'target' && targetCommand ? (
                   <button
                     className="mt-2 w-full rounded border border-red-400/60 bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-500/25"
-                    data-testid={`attack-target-${unit.id}`}
+                    data-testid={`${stripMode.targetKind === 'attack' ? 'attack-target' : 'choose-target'}-${unit.id}`}
                     type="button"
-                    onClick={() => stripMode.onAttackTarget(unit.id)}
+                    onClick={() => stripMode.onTargetCommand(targetCommand)}
                   >
-                    Target
+                    {stripMode.targetKind === 'attack' ? 'Target' : 'Choose'}
                   </button>
                 ) : null}
               </li>
@@ -1407,6 +1740,126 @@ function ReplayResult({ replay }: { readonly replay: ReplayState }): JSX.Element
   );
 }
 
+function hasLegalCommand(legal: readonly Command[], candidate: Command): boolean {
+  return legal.some((command) => isSameCommand(command, candidate));
+}
+
+function isSameCommand(left: Command, right: Command): boolean {
+  if (left.type !== right.type || left.player !== right.player) {
+    return false;
+  }
+
+  switch (left.type) {
+    case 'drawCard':
+    case 'endPhase':
+    case 'endTurn':
+    case 'resolveStack':
+      return true;
+    case 'playCard':
+      return right.type === 'playCard' && left.instance === right.instance;
+    case 'chooseTarget':
+      return right.type === 'chooseTarget' && left.target === right.target;
+    case 'attack':
+      return (
+        right.type === 'attack' && left.attacker === right.attacker && left.target === right.target
+      );
+  }
+}
+
+function nextTargetingAfterCommand(match: MatchState, command: Command): TargetingState {
+  if (command.type !== 'playCard') {
+    return { status: 'idle' };
+  }
+
+  const view = command.player === p1 ? match.p1View : match.p2View;
+  const top = view.stack[view.stack.length - 1];
+  const legal = legalCommands(match.handles[command.player]!);
+
+  if (
+    top !== undefined &&
+    top.controller === command.player &&
+    legal.some((candidate) => candidate.type === 'chooseTarget')
+  ) {
+    return {
+      status: 'awaitingTarget',
+      draft: { type: 'chooseTarget', player: command.player, source: top.source },
+    };
+  }
+
+  return { status: 'idle' };
+}
+
+function deriveReplayArtifacts(match: MatchState): ReplayArtifacts {
+  const draft: ReplayEnvelopeV1 = {
+    schemaVersion: '0.1.0',
+    seed: match.seed,
+    setupOpts: match.setupOpts,
+    commands: match.commands,
+    finalStateHash: '',
+  };
+  const result = replayEnvelope(draft);
+  const events = match.commands.map((command, commandIndex): EventLogEntry => {
+    return { index: commandIndex, commandIndex, event: commandToEvent(command) };
+  });
+
+  return { events, hash: result.hash, issues: result.issues };
+}
+
+function deriveHashMatch(match: MatchState, replayHash: string): 'match' | 'mismatch' {
+  const envelope: ReplayEnvelopeV1 = {
+    schemaVersion: '0.1.0',
+    seed: match.seed,
+    setupOpts: match.setupOpts,
+    commands: match.commands,
+    finalStateHash: replayHash,
+  };
+  const result = replayEnvelope(envelope);
+  const replayP1View = viewMatch(result.finalHandles[p1]!);
+  const replayP2View = viewMatch(result.finalHandles[p2]!);
+  const localPublicHash = hashState({ p1: match.p1View, p2: match.p2View });
+  const replayPublicHash = hashState({ p1: replayP1View, p2: replayP2View });
+
+  return result.ok && localPublicHash === replayPublicHash ? 'match' : 'mismatch';
+}
+
+function commandToEvent(command: Command): CommandEvent {
+  switch (command.type) {
+    case 'drawCard':
+      return { type: 'cardDrawn', player: command.player };
+    case 'endPhase':
+      return { type: 'phaseAdvanced', player: command.player };
+    case 'endTurn':
+      return { type: 'turnEnded', player: command.player };
+    case 'playCard':
+      return { type: 'cardPlayed', player: command.player };
+    case 'chooseTarget':
+      return { type: 'targetChosen', player: command.player, target: command.target };
+    case 'resolveStack':
+      return { type: 'stackResolved', player: command.player };
+    case 'attack':
+      return { type: 'attackDeclared', player: command.player, target: command.target };
+  }
+}
+
+function formatEvent(event: CommandEvent): string {
+  switch (event.type) {
+    case 'cardDrawn':
+      return `${event.player} drew a card`;
+    case 'phaseAdvanced':
+      return `${event.player} advanced phase`;
+    case 'turnEnded':
+      return `${event.player} ended turn`;
+    case 'cardPlayed':
+      return `${event.player} played a card`;
+    case 'attackDeclared':
+      return `${event.player} attacked ${event.target}`;
+    case 'targetChosen':
+      return `${event.player} chose ${event.target}`;
+    case 'stackResolved':
+      return `${event.player} resolved stack`;
+  }
+}
+
 function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null): SetupOpts {
   const format = loadFormat();
   // Custom cards drive the playable kinds; fall back to the built-in set so
@@ -1420,7 +1873,8 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
       def.stats?.attack !== undefined ? { ...base, attack: def.stats.attack } : base;
     const withHealth =
       def.stats?.health !== undefined ? { ...withAttack, health: def.stats.health } : withAttack;
-    return withHealth;
+    const effects = mapDefinitionEffects(def.effects);
+    return effects.length > 0 ? { ...withHealth, effects } : withHealth;
   });
   return {
     seed,
@@ -1432,6 +1886,54 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
     cardKinds: kinds,
     cards,
   };
+}
+
+const ENGINE_EFFECT_OPS = new Set<EngineEffect['op']>([
+  'gainResource',
+  'drawCards',
+  'dealDamage',
+  'heal',
+  'summonUnit',
+  'moveCard',
+  'discardCards',
+  'addCounter',
+  'modifyStatUntilEndOfTurn',
+]);
+
+function mapDefinitionEffects(
+  effects: readonly CardDefinition['effects'][number][],
+): EngineEffect[] {
+  return effects.flatMap((effect) => {
+    if (!ENGINE_EFFECT_OPS.has(effect.op as EngineEffect['op'])) {
+      return [];
+    }
+
+    const target = mapDefinitionTarget(effect.target);
+    const mapped: EngineEffect = {
+      op: effect.op as EngineEffect['op'],
+      ...(effect.amount !== undefined ? { amount: effect.amount } : {}),
+      ...(target !== undefined ? { target } : {}),
+    };
+    return [mapped];
+  });
+}
+
+function mapDefinitionTarget(target: string | undefined): TargetSelector | undefined {
+  switch (target) {
+    case undefined:
+      return undefined;
+    case 'self':
+    case 'ownUnit':
+    case 'enemyUnit':
+    case 'enemyBase':
+    case 'enemyUnitOrBase':
+    case 'anyUnit':
+      return target;
+    case 'ownBase':
+      return 'self';
+    default:
+      return undefined;
+  }
 }
 
 function project(

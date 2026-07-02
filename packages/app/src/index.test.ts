@@ -162,11 +162,20 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
     const playerArea = screen.getByTestId('player-area');
+    expect(Number(screen.getByTestId('legal-commands-count').textContent)).toBeGreaterThan(0);
+    expect(screen.getByTestId('hash-match').textContent).toBe('match');
+    expect(screen.getByTestId('targeting-state').textContent).toBe('idle');
 
     fireEvent.click(within(playerArea).getByRole('button', { name: 'Draw card' }));
 
     expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(6);
     expect(within(playerArea).getByTestId('deck-count-p1').textContent).toBe('6');
+    expect(within(playerArea).getByRole('button', { name: 'Draw card' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(screen.getByTestId('event-0').textContent).toContain('p1 drew a card');
+    expect(screen.getByTestId('hash-match').textContent).toBe('match');
 
     const { handles } = startMatch(setupOpts);
     const p1Projection = viewMatch(handles[p1]!);
@@ -954,6 +963,50 @@ describe('@opencards/app Ember Duel demo', () => {
       }
     });
 
+    it('plays flare-strike through stack targeting and resolveStack', () => {
+      localStorage.setItem(
+        'opencards.format',
+        JSON.stringify({
+          name: 'Stack Test',
+          deckSize: 3,
+          openingHandSize: 3,
+          copyLimit: 4,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      );
+      render(createElement(App));
+      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      const flareCard = within(screen.getByTestId('player-area'))
+        .getAllByTestId('own-card-p1')
+        .find((card) => card.textContent?.includes('Flare Strike'));
+      expect(flareCard).toBeTruthy();
+
+      fireEvent.click(within(flareCard!).getByRole('button', { name: 'Play' }));
+
+      const stack = screen.getByTestId('stack');
+      expect(screen.getByTestId('targeting-state').textContent).toBe('awaitingTarget');
+      expect(stack.textContent).toContain('flare-strike');
+      expect(stack.textContent).toContain('no target');
+      expect(screen.queryByTestId('resolve-stack')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('choose-target-base'));
+
+      expect(screen.getByTestId('targeting-state').textContent).toBe('idle');
+      expect(stack.textContent).toContain('target base');
+      expect(screen.getByTestId('resolve-stack')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('resolve-stack'));
+
+      expect(Number(screen.getByTestId('base-p2').textContent)).toBe(18);
+      expect(screen.getByTestId('stack').textContent).toContain('Stack empty');
+      expect(screen.getByTestId('event-log').textContent).toContain('chose base');
+      expect(screen.getByTestId('event-log').textContent).toContain('resolved stack');
+      expect(screen.getByTestId('hash-match').textContent).toBe('match');
+    });
+
     it('opponent battlefield is public: p2 unit is visible from p1 perspective', () => {
       localStorage.setItem(
         'opencards.format',
@@ -1046,6 +1099,7 @@ describe('@opencards/app Ember Duel demo', () => {
       fireEvent.click(attackButton);
 
       expect(screen.getByTestId(`bf-unit-${unitId}`).getAttribute('data-selected')).toBe('true');
+      expect(screen.getByTestId('targeting-state').textContent).toBe('awaitingTarget');
       expect(screen.getByTestId('attack-target-base')).toBeTruthy();
 
       fireEvent.click(screen.getByTestId('attack-target-base'));
@@ -1053,6 +1107,9 @@ describe('@opencards/app Ember Duel demo', () => {
       expect(Number(screen.getByTestId('base-p2').textContent)).toBe(baseBefore - attack);
       expect(screen.getByTestId('cmd-count-p1').textContent).toBe('6');
       expect(screen.getByTestId('log-entry-6').textContent).toContain('attack');
+      expect(screen.getByTestId('event-log').textContent).toContain('attacked base');
+      expect(screen.getByTestId('targeting-state').textContent).toBe('idle');
+      expect(screen.getByTestId('hash-match').textContent).toBe('match');
     });
 
     it('cancel attack clears the selected attacker and target buttons', () => {
@@ -1067,6 +1124,7 @@ describe('@opencards/app Ember Duel demo', () => {
       fireEvent.click(screen.getByTestId('cancel-attack'));
 
       expect(screen.getByTestId(`bf-unit-${unitId}`).getAttribute('data-selected')).toBe('false');
+      expect(screen.getByTestId('targeting-state').textContent).toBe('idle');
       expect(screen.queryByTestId('attack-target-base')).toBeNull();
       expect(screen.queryByTestId('cancel-attack')).toBeNull();
     });
