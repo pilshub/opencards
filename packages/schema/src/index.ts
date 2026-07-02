@@ -38,6 +38,10 @@ export const ISSUE_CODES = Object.freeze({
   INVALID_BASE_TOTAL: 'OC-0015',
   /** startingEnergy not an integer >= 0 */
   INVALID_STARTING_ENERGY: 'OC-0016',
+  /** card copies exceed the active format copyLimit */
+  COPY_LIMIT_EXCEEDED: 'OC-0017',
+  /** decklist contains a kind that is not present in the active card database */
+  UNKNOWN_CARD_KIND: 'OC-0018',
 } as const);
 
 /** Stable validator issue code emitted by schema checks. */
@@ -66,3 +70,7 @@ export type { GameFormat } from './format.js';
 export { DEFAULT_FORMAT } from './format.js';
 /** Validate an unknown value as a GameFormat. Collects all issues, never throws. */
 export { validateFormat } from './format.js';
+/** DecklistValidationContext type used to validate a deck against a card pool and format. */
+export type { DecklistValidationContext } from './decklist.js';
+/** Validate a decklist and hash a valid ordered decklist reproducibly. */
+export { hashDecklist, validateDecklist } from './decklist.js';

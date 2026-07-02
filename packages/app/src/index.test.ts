@@ -24,6 +24,7 @@ const setupOpts: SetupOpts = {
 };
 const LS_KEY = 'opencards.customCards';
 const FORMAT_LS_KEY = 'opencards.format';
+const DECK_LS_KEY = 'opencards.deck';
 const combatUnitAttack = 2;
 const combatUnitHealth = 4;
 
@@ -1373,6 +1374,194 @@ describe('@opencards/app Card Creator', () => {
     const matches = stored.filter((c) => c.kind === 'my-card');
     expect(matches).toHaveLength(1);
     expect(matches[0]?.name).toBe('Version Two');
+  });
+});
+
+describe('@opencards/app Deck Editor', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('nav-deck shows deck-editor with live size, legality, and copy counts', () => {
+    render(createElement(App));
+
+    fireEvent.click(screen.getByTestId('nav-deck'));
+
+    expect(screen.getByTestId('deck-editor')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
+    expect(screen.getByTestId('deck-size').textContent).toBe('0/12');
+    expect(screen.getByTestId('deck-legality').textContent).toContain('OC-0003');
+
+    const addSpark = screen.getByTestId('deck-add-spark-adept');
+    fireEvent.click(addSpark);
+    fireEvent.click(addSpark);
+    fireEvent.click(addSpark);
+    fireEvent.click(addSpark);
+
+    expect(screen.getByTestId('deck-copies-spark-adept').textContent).toContain('4');
+    expect(addSpark).toHaveProperty('disabled', true);
+
+    fireEvent.click(screen.getByTestId('deck-remove-spark-adept'));
+    expect(screen.getByTestId('deck-copies-spark-adept').textContent).toContain('3');
+  });
+
+  it('exports cards, deck, and format JSON from the deck editor', () => {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify([
+        {
+          kind: 'saved-flare',
+          name: 'Saved Flare',
+          type: 'tactic',
+          cost: { energy: 1 },
+          effects: [],
+        },
+      ]),
+    );
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-deck'));
+    const exportOutput = screen.getByLabelText('Exported JSON') as HTMLTextAreaElement;
+
+    fireEvent.click(screen.getByTestId('export-cards'));
+    expect(JSON.parse(exportOutput.value)).toEqual([
+      {
+        kind: 'saved-flare',
+        name: 'Saved Flare',
+        type: 'tactic',
+        cost: { energy: 1 },
+        effects: [],
+      },
+    ]);
+
+    fireEvent.click(screen.getByTestId('deck-add-flare-strike'));
+    fireEvent.click(screen.getByTestId('export-deck'));
+    expect(JSON.parse(exportOutput.value)).toEqual(['flare-strike']);
+
+    fireEvent.click(screen.getByTestId('export-format'));
+    expect((JSON.parse(exportOutput.value) as { name: string }).name).toBe('Ember Duel');
+  });
+
+  it('validates imported cards, decks, and formats before writing localStorage', () => {
+    localStorage.setItem(DECK_LS_KEY, JSON.stringify(['spark-adept']));
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-deck'));
+    const importInput = screen.getByLabelText('Import JSON') as HTMLTextAreaElement;
+
+    fireEvent.change(importInput, { target: { value: JSON.stringify(['missing-card']) } });
+    fireEvent.click(screen.getByTestId('import-deck'));
+    expect(screen.getByTestId('import-error').textContent).toContain('OC-0018');
+    expect(localStorage.getItem(DECK_LS_KEY)).toBe(JSON.stringify(['spark-adept']));
+
+    fireEvent.change(importInput, {
+      target: {
+        value: JSON.stringify([
+          {
+            kind: 'custom-one',
+            name: 'Custom One',
+            type: 'tactic',
+            cost: { energy: 1 },
+            effects: [],
+          },
+        ]),
+      },
+    });
+    fireEvent.click(screen.getByTestId('import-cards'));
+    expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')).toHaveLength(1);
+
+    fireEvent.change(importInput, {
+      target: {
+        value: JSON.stringify([
+          {
+            kind: 'custom-one',
+            name: 'Custom One',
+            type: 'tactic',
+            cost: { energy: 1 },
+            effects: [],
+          },
+          {
+            kind: 'custom-one',
+            name: 'Duplicate Custom One',
+            type: 'tactic',
+            cost: { energy: 1 },
+            effects: [],
+          },
+        ]),
+      },
+    });
+    fireEvent.click(screen.getByTestId('import-cards'));
+    expect(screen.getByTestId('import-error').textContent).toContain('OC-0002');
+    expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')).toHaveLength(1);
+
+    fireEvent.change(importInput, {
+      target: {
+        value: JSON.stringify({
+          name: 'Tiny',
+          deckSize: 3,
+          openingHandSize: 3,
+          copyLimit: 3,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      },
+    });
+    fireEvent.click(screen.getByTestId('import-format'));
+    expect((JSON.parse(localStorage.getItem(FORMAT_LS_KEY) ?? '{}') as { name: string }).name).toBe(
+      'Tiny',
+    );
+
+    fireEvent.change(importInput, {
+      target: {
+        value: JSON.stringify({
+          name: 'Broken',
+          deckSize: 0,
+          openingHandSize: 0,
+          copyLimit: 3,
+          baseTotal: 20,
+          startingEnergy: 5,
+        }),
+      },
+    });
+    fireEvent.click(screen.getByTestId('import-format'));
+    expect(screen.getByTestId('import-error').textContent).toContain('OC-0003');
+    expect((JSON.parse(localStorage.getItem(FORMAT_LS_KEY) ?? '{}') as { name: string }).name).toBe(
+      'Tiny',
+    );
+  });
+
+  it('uses a valid saved decklist when starting and exporting a match', () => {
+    localStorage.setItem(
+      FORMAT_LS_KEY,
+      JSON.stringify({
+        name: 'Flare Mirror',
+        deckSize: 3,
+        openingHandSize: 3,
+        copyLimit: 3,
+        baseTotal: 20,
+        startingEnergy: 5,
+      }),
+    );
+    localStorage.setItem(
+      DECK_LS_KEY,
+      JSON.stringify(['flare-strike', 'flare-strike', 'flare-strike']),
+    );
+    render(createElement(App));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+
+    const playerArea = screen.getByTestId('player-area');
+    const handCards = within(playerArea).getAllByTestId('own-card-p1');
+    expect(handCards).toHaveLength(3);
+    for (const card of handCards) {
+      expect(card.textContent).toContain('Flare Strike');
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
+    const envelope = JSON.parse(
+      (screen.getByTestId('export-envelope') as HTMLTextAreaElement).value,
+    ) as ReplayEnvelopeV1;
+
+    expect(envelope.setupOpts.decklist).toEqual(['flare-strike', 'flare-strike', 'flare-strike']);
+    expect(replayEnvelope(envelope).ok).toBe(true);
   });
 });
 

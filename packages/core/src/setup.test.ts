@@ -77,4 +77,55 @@ describe('createInitialState', () => {
     const state = createInitialState(opts(42));
     expect(state.cards).toEqual({});
   });
+
+  it('uses opts.decklist as the exact generated deck order before shuffle', () => {
+    const decklist: CardKind[] = [
+      'unit-c',
+      'unit-c',
+      'unit-b',
+      'unit-a',
+      'unit-b',
+      'unit-a',
+      'unit-c',
+      'unit-b',
+      'unit-a',
+      'unit-c',
+      'unit-a',
+      'unit-b',
+    ];
+    const state = createInitialState({ ...opts(11), openingHandSize: 0, decklist });
+    const generated = [...(state.players[p1]?.hand ?? []), ...(state.players[p1]?.deck ?? [])]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((card) => card.kind);
+
+    expect(generated).toEqual(decklist);
+  });
+
+  it('rejects a decklist whose length does not match deckSize', () => {
+    expect(() =>
+      createInitialState({ ...opts(1), deckSize: 12, decklist: ['unit-a', 'unit-b'] }),
+    ).toThrow(/decklist length/);
+  });
+
+  it('falls back to cycling cardKinds when decklist is absent', () => {
+    const state = createInitialState({ ...opts(11), openingHandSize: 0 });
+    const generated = [...(state.players[p1]?.hand ?? []), ...(state.players[p1]?.deck ?? [])]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((card) => card.kind);
+
+    expect(generated).toEqual([
+      'unit-a',
+      'unit-b',
+      'unit-c',
+      'unit-a',
+      'unit-b',
+      'unit-c',
+      'unit-a',
+      'unit-b',
+      'unit-c',
+      'unit-a',
+      'unit-b',
+      'unit-c',
+    ]);
+  });
 });

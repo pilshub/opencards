@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { LayoutGroup, MotionConfig, motion } from 'framer-motion';
 import type {
   CardInstanceId,
+  CardKind,
   CardSpec,
   Command,
   EngineEffect,
@@ -24,9 +25,15 @@ import {
   viewMatch,
 } from '@opencards/core';
 import type { CardDefinition, GameFormat } from '@opencards/schema';
-import { DEFAULT_FORMAT, validateCardDefinition, validateFormat } from '@opencards/schema';
+import {
+  DEFAULT_FORMAT,
+  validateCardDefinition,
+  validateDecklist,
+  validateFormat,
+} from '@opencards/schema';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
+import { DeckEditor } from './components/DeckEditor.js';
 import { FormatEditor } from './components/FormatEditor.js';
 
 // ── Built-in card definitions ───────────────────────────────────────────────
@@ -57,11 +64,15 @@ const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = {
   },
 };
 
+const CUSTOM_CARDS_KEY = 'opencards.customCards';
+const DECK_KEY = 'opencards.deck';
+const FORMAT_KEY = 'opencards.format';
+
 /** Load and validate custom cards from localStorage. */
 function loadCustomCards(): CardDefinition[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem('opencards.customCards');
+    const raw = localStorage.getItem(CUSTOM_CARDS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -75,7 +86,7 @@ function loadCustomCards(): CardDefinition[] {
 function loadFormat(): GameFormat {
   if (typeof window === 'undefined') return DEFAULT_FORMAT;
   try {
-    const raw = localStorage.getItem('opencards.format');
+    const raw = localStorage.getItem(FORMAT_KEY);
     if (!raw) return DEFAULT_FORMAT;
     const parsed = JSON.parse(raw) as unknown;
     const result = validateFormat(parsed);
@@ -84,6 +95,29 @@ function loadFormat(): GameFormat {
   } catch {
     return DEFAULT_FORMAT;
   }
+}
+
+/** Load a saved decklist only when it is valid for the active format and card pool. */
+function loadDecklist(format: GameFormat, cards: readonly CardDefinition[]): CardKind[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(DECK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    const result = validateDecklist(parsed, { format, cards });
+    if (!result.ok || !Array.isArray(parsed)) return null;
+    return parsed as CardKind[];
+  } catch {
+    return null;
+  }
+}
+
+function mergeCardDefinitions(customCards: readonly CardDefinition[]): CardDefinition[] {
+  const registry = new Map<string, CardDefinition>(Object.entries(BUILTIN_DEFINITIONS));
+  for (const def of customCards) {
+    registry.set(def.kind, def);
+  }
+  return [...registry.values()];
 }
 
 /**
@@ -100,7 +134,7 @@ function buildCardRegistry(useCustom: boolean): Map<string, CardDefinition> {
   return registry;
 }
 
-type AppView = 'play' | 'create' | 'rules';
+type AppView = 'play' | 'deck' | 'create' | 'rules';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -233,9 +267,15 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
   );
 
   function startNewGame(): void {
+    const currentFormat = loadFormat();
+    const currentCustomCards = loadCustomCards();
+    const savedDecklist = loadDecklist(currentFormat, mergeCardDefinitions(currentCustomCards));
     const setupOpts = defaultSetup
       ? defaultSetup(seed)
-      : buildSetupFromFormat(seed, useCustomCards && hasCustomCards ? savedCustomCards : null);
+      : buildSetupFromFormat(seed, {
+          customCards: useCustomCards && currentCustomCards.length > 0 ? currentCustomCards : null,
+          decklist: savedDecklist,
+        });
     const started = startMatch(setupOpts);
     setMatch(project(started.handles, seed, setupOpts, []));
     setErrors({});
@@ -490,6 +530,18 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                 </button>
                 <button
                   className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'deck'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-deck"
+                  type="button"
+                  onClick={() => setAppView('deck')}
+                >
+                  Deck
+                </button>
+                <button
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
                     appView === 'create'
                       ? 'bg-[color:var(--oc-accent)] text-zinc-950'
                       : 'text-zinc-300 hover:bg-zinc-800'
@@ -524,6 +576,10 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
           </header>
 
           {appView === 'create' ? <CardCreator /> : null}
+
+          {appView === 'deck' ? (
+            <DeckEditor builtinCards={Object.values(BUILTIN_DEFINITIONS)} />
+          ) : null}
 
           {appView === 'rules' ? <FormatEditor /> : null}
 
@@ -664,7 +720,10 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     </div>
                     <BoardView
                       activePlayer={match.p1View.activePlayer}
-                      cardRegistry={buildCardRegistry(useCustomCards && hasCustomCards)}
+                      cardRegistry={buildCardRegistry(
+                        match.setupOpts.decklist !== undefined ||
+                          (useCustomCards && hasCustomCards),
+                      )}
                       commands={match.commands}
                       eventLog={replayArtifacts?.events ?? []}
                       hashMatch={hashMatch}
@@ -1860,12 +1919,22 @@ function formatEvent(event: CommandEvent): string {
   }
 }
 
-function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null): SetupOpts {
+function buildSetupFromFormat(
+  seed: number,
+  options: {
+    readonly customCards: CardDefinition[] | null;
+    readonly decklist: readonly CardKind[] | null;
+  },
+): SetupOpts {
   const format = loadFormat();
   // Custom cards drive the playable kinds; fall back to the built-in set so
   // cardKinds is never empty (the engine cycles the deck over these kinds).
   const activeDefs =
-    customCards && customCards.length > 0 ? customCards : Object.values(BUILTIN_DEFINITIONS);
+    options.decklist !== null
+      ? mergeCardDefinitions(loadCustomCards())
+      : options.customCards && options.customCards.length > 0
+        ? options.customCards
+        : Object.values(BUILTIN_DEFINITIONS);
   const kinds = activeDefs.map((card) => card.kind);
   const cards: CardSpec[] = activeDefs.map((def) => {
     const base: CardSpec = { kind: def.kind, type: def.type, cost: def.cost.energy };
@@ -1876,7 +1945,7 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
     const effects = mapDefinitionEffects(def.effects);
     return effects.length > 0 ? { ...withHealth, effects } : withHealth;
   });
-  return {
+  const setup: SetupOpts = {
     seed,
     players,
     deckSize: format.deckSize,
@@ -1886,6 +1955,7 @@ function buildSetupFromFormat(seed: number, customCards: CardDefinition[] | null
     cardKinds: kinds,
     cards,
   };
+  return options.decklist !== null ? { ...setup, decklist: options.decklist } : setup;
 }
 
 const ENGINE_EFFECT_OPS = new Set<EngineEffect['op']>([
@@ -1901,9 +1971,9 @@ const ENGINE_EFFECT_OPS = new Set<EngineEffect['op']>([
 ]);
 
 function mapDefinitionEffects(
-  effects: readonly CardDefinition['effects'][number][],
+  effects: readonly CardDefinition['effects'][number][] | undefined,
 ): EngineEffect[] {
-  return effects.flatMap((effect) => {
+  return (effects ?? []).flatMap((effect) => {
     if (!ENGINE_EFFECT_OPS.has(effect.op as EngineEffect['op'])) {
       return [];
     }

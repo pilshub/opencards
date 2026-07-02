@@ -22,6 +22,8 @@ export interface SetupOpts {
   readonly openingHandSize: number;
   /** Card kinds cycled through each generated deck. */
   readonly cardKinds: readonly CardKind[];
+  /** Optional exact decklist used instead of cycling cardKinds. */
+  readonly decklist?: readonly CardKind[];
   /** Starting base (life total) for each player. Defaults to 20. */
   readonly baseTotal?: number;
   /** Starting energy for each player. Defaults to 0. */
@@ -36,12 +38,16 @@ export function createInitialState(opts: SetupOpts): State {
     throw new Error('createInitialState requires at least one player');
   }
 
-  if (opts.cardKinds.length === 0) {
+  if (opts.decklist === undefined && opts.cardKinds.length === 0) {
     throw new Error('createInitialState requires at least one card kind');
   }
 
   if (opts.deckSize < 0 || opts.openingHandSize < 0 || opts.openingHandSize > opts.deckSize) {
     throw new Error('createInitialState requires valid deck and opening hand sizes');
+  }
+
+  if (opts.decklist !== undefined && opts.decklist.length !== opts.deckSize) {
+    throw new Error('createInitialState requires decklist length to match deck size');
   }
 
   const baseTotal = opts.baseTotal ?? 20;
@@ -51,7 +57,7 @@ export function createInitialState(opts: SetupOpts): State {
   const players = {} as Record<PlayerId, Player>;
 
   for (const playerId of opts.players) {
-    const deck = buildDeck(playerId, opts.deckSize, opts.cardKinds);
+    const deck = buildDeck(playerId, opts.deckSize, opts.cardKinds, opts.decklist);
     const [shuffled, nextRng] = fisherYates(deck, rng);
     rng = nextRng;
     players[playerId] = {
@@ -99,11 +105,12 @@ function buildDeck(
   playerId: PlayerId,
   deckSize: number,
   cardKinds: readonly CardKind[],
+  decklist: readonly CardKind[] | undefined,
 ): CardInstance[] {
   return Array.from({ length: deckSize }, (_, index): CardInstance => {
     return {
       id: `${playerId}-c${String(index).padStart(2, '0')}` as CardInstanceId,
-      kind: cardKinds[index % cardKinds.length]!,
+      kind: decklist?.[index] ?? cardKinds[index % cardKinds.length]!,
     };
   });
 }

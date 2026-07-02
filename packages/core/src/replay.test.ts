@@ -65,4 +65,28 @@ describe('replay', () => {
     expect(result.issues.map((issue) => issue.code)).toEqual(['UNKNOWN_PLAYER']);
     expect(() => computeReplayHash(invalid)).toThrow(/UNKNOWN_PLAYER/);
   });
+
+  it('includes edited setupOpts.cards definitions in the computed replay hash', () => {
+    const baseSetup: SetupOpts = {
+      ...setupOpts(9),
+      deckSize: 1,
+      cardKinds: ['unit-a'],
+      cards: [{ kind: 'unit-a', type: 'unit', cost: 1, attack: 1, health: 2 }],
+    };
+    const editedSetup: SetupOpts = {
+      ...baseSetup,
+      cards: [{ kind: 'unit-a', type: 'unit', cost: 1, attack: 3, health: 2 }],
+    };
+    const envelope = (setup: SetupOpts): ReplayEnvelopeV1 => ({
+      schemaVersion: '0.1.0',
+      seed: setup.seed,
+      setupOpts: setup,
+      commands: [],
+      finalStateHash: '',
+    });
+
+    expect(computeReplayHash(envelope(baseSetup))).not.toBe(
+      computeReplayHash(envelope(editedSetup)),
+    );
+  });
 });
