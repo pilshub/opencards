@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardKind, PlayerId, ReplayEnvelopeV1, SetupOpts, ViewerHandle } from './index.js';
-import { applyCommand, replayEnvelope, startMatch, viewMatch } from './index.js';
+import { applyCommand, legalCommands, replayEnvelope, startMatch, viewMatch } from './index.js';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -20,10 +20,12 @@ const validEnvelope: ReplayEnvelopeV1 = {
   setupOpts: { ...setupOpts, openingHandSize: 0 },
   commands: [
     { type: 'drawCard', player: p1 },
+    { type: 'endTurn', player: p1 },
     { type: 'drawCard', player: p2 },
+    { type: 'endTurn', player: p2 },
     { type: 'drawCard', player: p1 },
   ],
-  finalStateHash: '9e4324515d7a4af3d16bb671cf346d82b21711ccf90cc003d2d3accc247be89c',
+  finalStateHash: '94abd41327d670a46bfab707c9691f8e52153f26637381ed7cfc10f0df3f8e4d',
 };
 
 describe('core facade', () => {
@@ -95,8 +97,10 @@ describe('core facade', () => {
     const p1Handle = started.handles[p1]!;
     const p2Handle = started.handles[p2]!;
     const first = applyCommand(p1Handle, { type: 'drawCard', player: p1 });
+    const turn = applyCommand(p1Handle, { type: 'endTurn', player: p1 });
     const second = applyCommand(p2Handle, { type: 'drawCard', player: p2 });
 
+    expect(turn.issues).toEqual([]);
     expect(second.issues).toEqual([]);
     expect(first.handle).toBe(p1Handle);
     expect(second.handle).toBe(p2Handle);
@@ -167,6 +171,49 @@ describe('core facade', () => {
     expect(forcedP2View.viewer.id).toBe(p1);
     expect(p1BoundView.viewer.id).toBe(p1);
     expect(forcedP2View.opponents[p2]?.hand[0]).not.toHaveProperty('kind');
+  });
+
+  it('legalCommands returns only the commands for the supplied handle viewer', () => {
+    const { handles } = startMatch(setupOpts);
+    const p1Handle = handles[p1]!;
+    const p2Handle = handles[p2]!;
+    const p1Commands = legalCommands(p1Handle);
+
+    expect(p1Commands).toEqual([
+      { type: 'drawCard', player: p1 },
+      { type: 'endPhase', player: p1 },
+      { type: 'endTurn', player: p1 },
+    ]);
+    expect(legalCommands(p2Handle)).toEqual([]);
+
+    // @ts-expect-error legalCommands intentionally has no viewer/player parameter.
+    const forcedP2Commands = legalCommands(p1Handle, p2);
+    expect(forcedP2Commands).toEqual(p1Commands);
+  });
+
+  it('legalCommands does not leak opponent hand instance ids', () => {
+    const hiddenSetup: SetupOpts = {
+      ...setupOpts,
+      openingHandSize: 1,
+      startingEnergy: 1,
+      cards: cardKinds.map((kind) => ({
+        kind,
+        type: 'unit' as const,
+        cost: 1,
+        attack: 1,
+        health: 1,
+      })),
+    };
+    const { handles } = startMatch(hiddenSetup);
+    const p1Handle = handles[p1]!;
+
+    applyCommand(p1Handle, { type: 'endPhase', player: p1 });
+    const json = JSON.stringify(legalCommands(p1Handle));
+
+    expect(json).toContain('p1-');
+    for (let index = 0; index < hiddenSetup.deckSize; index += 1) {
+      expect(json).not.toContain(`${p2}-c${index.toString().padStart(2, '0')}`);
+    }
   });
 });
 

@@ -51,6 +51,7 @@ const state: State = {
       ],
       base: 17,
       energy: 2,
+      drawnThisTurn: true,
     },
     [p2]: {
       id: p2,
@@ -76,6 +77,7 @@ const state: State = {
       ],
       base: 12,
       energy: 4,
+      drawnThisTurn: false,
     },
   },
 };
@@ -135,13 +137,15 @@ describe('getView', () => {
     expect(JSON.stringify(p2View)).toContain('public-discard');
   });
 
-  it('exposes base, energy, and winner for the viewer and opponents', () => {
+  it('exposes base, energy, drawnThisTurn, and winner for the viewer and opponents', () => {
     const view = getView({ ...state, winner: p2 }, p1);
 
     expect(view.viewer.base).toBe(17);
     expect(view.viewer.energy).toBe(2);
+    expect(view.viewer.drawnThisTurn).toBe(true);
     expect(view.opponents[p2]?.base).toBe(12);
     expect(view.opponents[p2]?.energy).toBe(4);
+    expect(view.opponents[p2]?.drawnThisTurn).toBe(false);
     expect(view.winner).toBe(p2);
   });
 });

@@ -24,6 +24,7 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       battlefield: player.battlefield.map((u) => ({ ...u })),
       base: player.base,
       energy: player.energy,
+      drawnThisTurn: player.drawnThisTurn,
     };
   }
 
@@ -37,6 +38,7 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       battlefield: viewerState.battlefield.map((u) => ({ ...u })),
       base: viewerState.base,
       energy: viewerState.energy,
+      drawnThisTurn: viewerState.drawnThisTurn,
     },
     opponents,
     activePlayer: state.activePlayer,

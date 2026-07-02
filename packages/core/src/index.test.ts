@@ -6,6 +6,7 @@ import {
   applyCommand,
   fisherYates,
   hashState,
+  legalCommands,
   nextRangeRng,
   nextRng,
   seedRng,
@@ -31,6 +32,7 @@ describe('@opencards/core public API', () => {
     };
 
     const started = startMatch(setupOpts);
+    expect(legalCommands(started.handles[p1]!)).toContainEqual({ type: 'drawCard', player: p1 });
     const applied = applyCommand(started.handles[p1]!, { type: 'drawCard', player: p1 });
     const view = viewMatch(applied.handle);
 
@@ -53,6 +55,7 @@ describe('@opencards/core public API', () => {
   });
 
   it('does not export raw state APIs from the root facade', () => {
+    expect(Object.hasOwn(core, 'legalCommands')).toBe(true);
     expect(Object.hasOwn(core, 'createInitialState')).toBe(false);
     expect(Object.hasOwn(core, 'apply')).toBe(false);
     expect(Object.hasOwn(core, 'replay')).toBe(false);

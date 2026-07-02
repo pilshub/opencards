@@ -14,7 +14,15 @@
       "player": "p1"
     },
     {
+      "type": "endTurn",
+      "player": "p1"
+    },
+    {
       "type": "drawCard",
+      "player": "p2"
+    },
+    {
+      "type": "endTurn",
       "player": "p2"
     },
     {
@@ -22,5 +30,5 @@
       "player": "p1"
     }
   ],
-  "finalStateHash": "9e4324515d7a4af3d16bb671cf346d82b21711ccf90cc003d2d3accc247be89c"
+  "finalStateHash": "94abd41327d670a46bfab707c9691f8e52153f26637381ed7cfc10f0df3f8e4d"
 }

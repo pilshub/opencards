@@ -73,6 +73,8 @@ export interface Player {
   readonly base: number;
   /** Player's current energy pool. Public information. */
   readonly energy: number;
+  /** Whether this player has used their once-per-turn draw. Public information. */
+  readonly drawnThisTurn: boolean;
 }
 
 /** Canonical match state. */
@@ -212,6 +214,8 @@ export interface OwnPlayerView {
   readonly base: number;
   /** Current energy pool. Public information. */
   readonly energy: number;
+  /** Whether this player has used their once-per-turn draw. Public information. */
+  readonly drawnThisTurn: boolean;
 }
 
 /** Opponent projection visible to the viewer. */
@@ -232,6 +236,8 @@ export interface OpponentPlayerView {
   readonly base: number;
   /** Current energy pool. Public information. */
   readonly energy: number;
+  /** Whether this player has used their once-per-turn draw. Public information. */
+  readonly drawnThisTurn: boolean;
 }
 
 /** Hidden-information-safe state projection for one viewer. */

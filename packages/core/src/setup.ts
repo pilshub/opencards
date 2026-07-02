@@ -63,6 +63,7 @@ export function createInitialState(opts: SetupOpts): State {
       battlefield: [],
       base: baseTotal,
       energy: startingEnergy,
+      drawnThisTurn: false,
     };
   }
 

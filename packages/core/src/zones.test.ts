@@ -25,6 +25,7 @@ const state = (): State => ({
       battlefield: [],
       base: 20,
       energy: 0,
+      drawnThisTurn: false,
     },
   },
 });

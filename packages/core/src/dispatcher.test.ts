@@ -42,6 +42,7 @@ const baseState = (): State => ({
       battlefield: [],
       base: 20,
       energy: 0,
+      drawnThisTurn: false,
     },
     [p2]: {
       id: p2,
@@ -52,6 +53,7 @@ const baseState = (): State => ({
       battlefield: [],
       base: 20,
       energy: 0,
+      drawnThisTurn: false,
     },
   },
 });
@@ -78,7 +80,21 @@ describe('apply', () => {
     ]);
     expect(result.state.players[p1]?.deck).toEqual([{ id: 'p1-c01', kind: 'unit-b' }]);
     expect(result.state.players[p1]?.hand).toEqual([{ id: 'p1-c00', kind: 'unit-a' }]);
+    expect(result.state.players[p1]?.drawnThisTurn).toBe(true);
     expect(state.players[p1]?.deck).toHaveLength(2);
+  });
+
+  it('returns ALREADY_DREW and leaves state unchanged when drawing twice in one turn', () => {
+    const state = baseState();
+    const first = apply(state, { type: 'drawCard', player: p1 });
+    const second = apply(first.state, { type: 'drawCard', player: p1 });
+
+    expect(first.issues).toEqual([]);
+    expect(second.state).toBe(first.state);
+    expect(second.events).toEqual([]);
+    expect(second.issues).toEqual([
+      { code: 'ALREADY_DREW', message: 'Player has already drawn this turn: p1' },
+    ]);
   });
 
   it('returns EMPTY_DECK and leaves state unchanged when the deck is empty', () => {
@@ -106,6 +122,31 @@ describe('apply', () => {
     expect(result.events).toEqual([]);
     expect(result.issues).toEqual([{ code: 'UNKNOWN_PLAYER', message: 'Unknown player: missing' }]);
   });
+
+  it('returns NOT_ACTIVE_PLAYER and leaves state unchanged when an inactive player draws', () => {
+    const state = baseState();
+    const result = apply(state, { type: 'drawCard', player: p2 });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      { code: 'NOT_ACTIVE_PLAYER', message: 'Player is not the active player: p2' },
+    ]);
+  });
+
+  it.each(['main', 'combat', 'end'] as const)(
+    'returns PHASE_NOT_START and leaves state unchanged when drawing in %s',
+    (phase) => {
+      const state: State = { ...baseState(), phase };
+      const result = apply(state, { type: 'drawCard', player: p1 });
+
+      expect(result.state).toBe(state);
+      expect(result.events).toEqual([]);
+      expect(result.issues).toEqual([
+        { code: 'PHASE_NOT_START', message: 'drawCard requires the start phase' },
+      ]);
+    },
+  );
 
   // --- endPhase ---
 
@@ -177,6 +218,23 @@ describe('apply', () => {
     expect(result.state.players[p2]?.energy).toBe(1);
     // p1 energy unchanged
     expect(result.state.players[p1]?.energy).toBe(0);
+  });
+
+  it('endTurn resets drawnThisTurn for the incoming active player', () => {
+    const state: State = {
+      ...baseState(),
+      players: {
+        ...baseState().players,
+        [p2]: { ...baseState().players[p2]!, drawnThisTurn: true },
+      },
+    };
+    const result = apply(state, { type: 'endTurn', player: p1 });
+    const draw = apply(result.state, { type: 'drawCard', player: p2 });
+
+    expect(result.issues).toEqual([]);
+    expect(result.state.players[p2]?.drawnThisTurn).toBe(false);
+    expect(draw.issues).toEqual([]);
+    expect(draw.state.players[p2]?.drawnThisTurn).toBe(true);
   });
 
   it('endTurn emits resourceGained then turnEnded', () => {
@@ -274,6 +332,7 @@ const playCardBaseState = (): State => ({
       battlefield: [],
       base: 20,
       energy: 5,
+      drawnThisTurn: false,
     },
     [p2]: {
       id: p2,
@@ -284,6 +343,7 @@ const playCardBaseState = (): State => ({
       battlefield: [],
       base: 20,
       energy: 0,
+      drawnThisTurn: false,
     },
   },
 });

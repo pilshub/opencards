@@ -5,6 +5,7 @@
 import type { Command, PlayerId, PlayerView, State, ValidationIssue } from './types.js';
 import type { ReplayEnvelopeV1 } from './replay.js';
 import { apply } from './dispatcher.js';
+import { getLegalCommands } from './legal.js';
 import { replay } from './replay.js';
 import { createInitialState, type SetupOpts } from './setup.js';
 import { getView } from './view.js';
@@ -83,6 +84,12 @@ export function applyCommand(handle: ViewerHandle, command: Command): MatchStepR
 export function viewMatch(handle: ViewerHandle): PlayerView {
   const { match, viewer } = lookup(handle);
   return getView(match.state, viewer);
+}
+
+/** Enumerate legal commands available to the viewer bound to this handle. */
+export function legalCommands(handle: ViewerHandle): Command[] {
+  const { match, viewer } = lookup(handle);
+  return getLegalCommands(match.state, viewer);
 }
 
 /** Replay an envelope and return verification details plus final viewer-bound handles. */

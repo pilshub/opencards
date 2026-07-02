@@ -88,6 +88,21 @@ function unitIdFromElement(unit: HTMLElement): string {
   return unit.getAttribute('data-testid')?.replace('bf-unit-', '') ?? '';
 }
 
+function drawForCurrentViewer(): void {
+  fireEvent.click(
+    within(screen.getByTestId('player-area')).getByRole('button', { name: 'Draw card' }),
+  );
+}
+
+function drawAndPassTurn(viewer: PlayerId): PlayerId {
+  drawForCurrentViewer();
+  fireEvent.click(screen.getByTestId('end-turn'));
+  const nextViewer = viewer === p1 ? p2 : p1;
+  fireEvent.click(screen.getByTestId(`view-as-${nextViewer}`));
+
+  return nextViewer;
+}
+
 function playFirstUnitAsP1(): HTMLElement {
   fireEvent.click(screen.getByTestId('end-phase'));
   const playerArea = screen.getByTestId('player-area');
@@ -401,6 +416,7 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement(App));
 
     fireEvent.keyDown(window, { key: 'n' });
+    fireEvent.click(screen.getByTestId('end-turn'));
     fireEvent.keyDown(window, { key: '2' });
     fireEvent.click(screen.getByTestId('view-as-p2'));
 
@@ -622,18 +638,15 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement<AppProps>(App, { defaultSetup: () => logSetup, matchLogLimit: 3 }));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
-      name: 'Draw card',
-    });
-    fireEvent.click(drawButton);
-    fireEvent.click(drawButton);
-    fireEvent.click(drawButton);
-    fireEvent.click(drawButton);
+    let viewer = drawAndPassTurn(p1);
+    viewer = drawAndPassTurn(viewer);
+    drawForCurrentViewer();
 
-    expect(screen.getByTestId('log-truncation').textContent).toBe('Showing latest 3 of 4');
-    expect(screen.queryByTestId('log-entry-0')).toBeNull();
-    expect(screen.getByTestId('log-entry-1').textContent).toBe('#2 · p1 · drawCard');
-    expect(screen.getByTestId('log-entry-3').textContent).toBe('#4 · p1 · drawCard');
+    expect(viewer).toBe(p1);
+    expect(screen.getByTestId('log-truncation').textContent).toBe('Showing latest 3 of 5');
+    expect(screen.queryByTestId('log-entry-1')).toBeNull();
+    expect(screen.getByTestId('log-entry-2').textContent).toBe('#3 · p2 · drawCard');
+    expect(screen.getByTestId('log-entry-4').textContent).toBe('#5 · p1 · drawCard');
   });
 
   it('guards non-positive matchLogLimit values before slicing the match log', () => {
@@ -645,11 +658,9 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement<AppProps>(App, { defaultSetup: () => logSetup, matchLogLimit: 0 }));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
-      name: 'Draw card',
-    });
-    for (let index = 0; index < 60; index += 1) {
-      fireEvent.click(drawButton);
+    let viewer: PlayerId = p1;
+    for (let index = 0; index < 30; index += 1) {
+      viewer = drawAndPassTurn(viewer);
     }
 
     expect(screen.getByTestId('match-log')).toBeTruthy();
@@ -670,11 +681,9 @@ describe('@opencards/app Ember Duel demo', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
-      name: 'Draw card',
-    });
-    for (let index = 0; index < 51; index += 1) {
-      fireEvent.click(drawButton);
+    let viewer: PlayerId = p1;
+    for (let index = 0; index < 26; index += 1) {
+      viewer = drawAndPassTurn(viewer);
     }
 
     expect(screen.getByTestId('log-truncation')).toBeTruthy();
@@ -723,11 +732,7 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
-      name: 'Draw card',
-    });
-    fireEvent.click(drawButton);
-    fireEvent.click(drawButton);
+    drawAndPassTurn(p1);
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
 
     const exportMeta = screen.getByTestId('export-meta').textContent;
@@ -739,11 +744,8 @@ describe('@opencards/app Ember Duel demo', () => {
     render(createElement(App));
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    const drawButton = within(screen.getByTestId('player-area')).getByRole('button', {
-      name: 'Draw card',
-    });
-    fireEvent.click(drawButton);
-    fireEvent.click(drawButton);
+    drawForCurrentViewer();
+    fireEvent.click(screen.getByTestId('end-turn'));
 
     expect(screen.getByTestId('cmd-count-p1').textContent).toBe('2');
 

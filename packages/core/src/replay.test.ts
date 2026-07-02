@@ -22,7 +22,9 @@ const envelopeForSeed = (seed: number): ReplayEnvelopeV1 => {
     setupOpts: setupOpts(seed),
     commands: [
       { type: 'drawCard', player: p1 },
+      { type: 'endTurn', player: p1 },
       { type: 'drawCard', player: p2 },
+      { type: 'endTurn', player: p2 },
       { type: 'drawCard', player: p1 },
     ],
     finalStateHash: '',

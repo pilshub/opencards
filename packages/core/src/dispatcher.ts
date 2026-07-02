@@ -47,6 +47,16 @@ const phaseNotMain = (): ValidationIssue => ({
   message: 'playCard requires the main phase',
 });
 
+const phaseNotStart = (): ValidationIssue => ({
+  code: 'PHASE_NOT_START',
+  message: 'drawCard requires the start phase',
+});
+
+const alreadyDrew = (player: string): ValidationIssue => ({
+  code: 'ALREADY_DREW',
+  message: `Player has already drawn this turn: ${player}`,
+});
+
 const cardNotInHand = (instance: string): ValidationIssue => ({
   code: 'CARD_NOT_IN_HAND',
   message: `Card instance not found in player hand: ${instance}`,
@@ -140,12 +150,32 @@ export function apply(state: State, command: Command): ApplyResult {
         return { state, events: [], issues: [unknownPlayer(command.player)] };
       }
 
+      if (command.player !== state.activePlayer) {
+        return { state, events: [], issues: [notActivePlayer(command.player)] };
+      }
+
+      if (state.phase !== 'start') {
+        return { state, events: [], issues: [phaseNotStart()] };
+      }
+
+      if (player.drawnThisTurn) {
+        return { state, events: [], issues: [alreadyDrew(command.player)] };
+      }
+
       if (player.deck.length === 0) {
         return { state, events: [], issues: [emptyDeck(command.player)] };
       }
 
       const drawn = player.deck[0]!;
-      const nextState = moveCard(state, drawn, 'deck', 'hand');
+      const stateWithDraw = moveCard(state, drawn, 'deck', 'hand');
+      const drawnPlayer = stateWithDraw.players[command.player]!;
+      const nextState: State = {
+        ...stateWithDraw,
+        players: {
+          ...stateWithDraw.players,
+          [command.player]: { ...drawnPlayer, drawnThisTurn: true },
+        },
+      };
       const events: readonly Event[] = [
         { type: 'cardDrawn', player: command.player, instance: drawn },
       ];
@@ -203,6 +233,7 @@ export function apply(state: State, command: Command): ApplyResult {
       const updatedNextPlayer = {
         ...nextPlayerState,
         energy: nextPlayerState.energy + 1,
+        drawnThisTurn: false,
         battlefield: nextPlayerState.battlefield.map((u) => ({ ...u, exhausted: false })),
       };
 
