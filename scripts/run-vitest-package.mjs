@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { startVitest } from 'vitest/node';
@@ -43,6 +44,12 @@ if (!testConfig?.coverage?.thresholds) {
   console.error(`No coverage thresholds configured in ${configPath}.`);
   process.exit(1);
 }
+
+const coverageDir =
+  typeof testConfig.coverage.reportsDirectory === 'string'
+    ? path.resolve(packageDir, testConfig.coverage.reportsDirectory)
+    : path.join(packageDir, 'coverage');
+await mkdir(path.join(coverageDir, '.tmp'), { recursive: true });
 
 const tsNoEsbuildPlugin = {
   name: 'opencards-ts-no-esbuild',
