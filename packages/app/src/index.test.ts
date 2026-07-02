@@ -24,6 +24,8 @@ const setupOpts: SetupOpts = {
 };
 const LS_KEY = 'opencards.customCards';
 const FORMAT_LS_KEY = 'opencards.format';
+const combatUnitAttack = 2;
+const combatUnitHealth = 4;
 
 function buildEnvelope(overrides: Partial<ReplayEnvelopeV1> = {}): ReplayEnvelopeV1 {
   const draft: ReplayEnvelopeV1 = {
@@ -45,6 +47,69 @@ function removeClipboard(): void {
 
 function labelForKind(kind: CardKind): string {
   return cardLabelByKind.get(kind) ?? kind;
+}
+
+function combatSetup(seed: number): SetupOpts {
+  return {
+    seed,
+    players: [p1, p2],
+    deckSize: 6,
+    openingHandSize: 3,
+    cardKinds: ['spark-adept'],
+    baseTotal: 20,
+    startingEnergy: 5,
+    cards: [
+      {
+        kind: 'spark-adept',
+        type: 'unit',
+        cost: 1,
+        attack: combatUnitAttack,
+        health: combatUnitHealth,
+      },
+    ],
+  };
+}
+
+function startCombatTestGame(): void {
+  render(createElement<AppProps>(App, { defaultSetup: combatSetup }));
+  fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
+}
+
+function firstBattlefieldUnit(owner: PlayerId): HTMLElement {
+  const unit = screen
+    .getByTestId(`battlefield-${owner}`)
+    .querySelector('[data-testid^="bf-unit-"]');
+  expect(unit).toBeTruthy();
+
+  return unit as HTMLElement;
+}
+
+function unitIdFromElement(unit: HTMLElement): string {
+  return unit.getAttribute('data-testid')?.replace('bf-unit-', '') ?? '';
+}
+
+function playFirstUnitAsP1(): HTMLElement {
+  fireEvent.click(screen.getByTestId('end-phase'));
+  const playerArea = screen.getByTestId('player-area');
+  const playButton = within(playerArea)
+    .getAllByRole('button', { name: 'Play' })
+    .find((button) => !(button as HTMLButtonElement).disabled);
+  expect(playButton).toBeTruthy();
+  fireEvent.click(playButton!);
+
+  return firstBattlefieldUnit(p1);
+}
+
+function readyP1UnitForCombat(): HTMLElement {
+  const unit = playFirstUnitAsP1();
+  fireEvent.click(screen.getByTestId('end-turn'));
+  fireEvent.click(screen.getByTestId('view-as-p2'));
+  fireEvent.click(screen.getByTestId('end-turn'));
+  fireEvent.click(screen.getByTestId('view-as-p1'));
+  fireEvent.click(screen.getByTestId('end-phase'));
+  fireEvent.click(screen.getByTestId('end-phase'));
+
+  return screen.getByTestId(unit.getAttribute('data-testid') ?? '');
 }
 
 beforeEach(() => {
@@ -932,6 +997,76 @@ describe('@opencards/app Ember Duel demo', () => {
       for (const kind of ['spark-adept', 'ember-guard', 'flare-strike'] as const) {
         expect(opponentHandZone.textContent).not.toContain(kind);
       }
+    });
+  });
+
+  describe('combat UI', () => {
+    it('battlefield unit renders attack and remaining health hooks', () => {
+      startCombatTestGame();
+
+      const unit = playFirstUnitAsP1();
+
+      expect(unit.dataset.attack).toBe(String(combatUnitAttack));
+      expect(unit.dataset.health).toBe(String(combatUnitHealth));
+      expect(unit.dataset.damage).toBe('0');
+      expect(unit.dataset.exhausted).toBe('true');
+      expect(unit.textContent).toContain(`ATK ${String(combatUnitAttack)}`);
+      expect(unit.textContent).toContain(`HP ${String(combatUnitHealth)}`);
+    });
+
+    it('freshly played unit has its attack button disabled in combat', () => {
+      startCombatTestGame();
+
+      const unit = playFirstUnitAsP1();
+      const unitId = unitIdFromElement(unit);
+      fireEvent.click(screen.getByTestId('end-phase'));
+
+      const combatUnit = screen.getByTestId(`bf-unit-${unitId}`);
+      expect(within(combatUnit).getByTestId(`attack-with-${unitId}`)).toHaveProperty(
+        'disabled',
+        true,
+      );
+      expect(screen.queryByTestId('attack-target-base')).toBeNull();
+    });
+
+    it('plays, readies, enters combat, and attacks the opponent base', () => {
+      startCombatTestGame();
+
+      const unit = readyP1UnitForCombat();
+      const unitId = unitIdFromElement(unit);
+      const attack = Number(unit.dataset.attack);
+      const baseBefore = Number(screen.getByTestId('base-p2').textContent);
+      const attackButton = within(unit).getByTestId(`attack-with-${unitId}`);
+
+      expect(screen.getByTestId('turn-info').textContent).toContain('Phase: combat');
+      expect(attackButton).toHaveProperty('disabled', false);
+
+      fireEvent.click(attackButton);
+
+      expect(screen.getByTestId(`bf-unit-${unitId}`).getAttribute('data-selected')).toBe('true');
+      expect(screen.getByTestId('attack-target-base')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('attack-target-base'));
+
+      expect(Number(screen.getByTestId('base-p2').textContent)).toBe(baseBefore - attack);
+      expect(screen.getByTestId('cmd-count-p1').textContent).toBe('6');
+      expect(screen.getByTestId('log-entry-6').textContent).toContain('attack');
+    });
+
+    it('cancel attack clears the selected attacker and target buttons', () => {
+      startCombatTestGame();
+
+      const unit = readyP1UnitForCombat();
+      const unitId = unitIdFromElement(unit);
+
+      fireEvent.click(within(unit).getByTestId(`attack-with-${unitId}`));
+      expect(screen.getByTestId('attack-target-base')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('cancel-attack'));
+
+      expect(screen.getByTestId(`bf-unit-${unitId}`).getAttribute('data-selected')).toBe('false');
+      expect(screen.queryByTestId('attack-target-base')).toBeNull();
+      expect(screen.queryByTestId('cancel-attack')).toBeNull();
     });
   });
 });

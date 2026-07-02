@@ -148,6 +148,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     'idle',
   );
   const [useCustomCards, setUseCustomCards] = useState(false);
+  const [attackSelection, setAttackSelection] = useState<CardInstanceId | null>(null);
   const exportedEnvelopeRef = useRef<HTMLTextAreaElement | null>(null);
   const currentHash = useMemo(() => (match ? hashState(match.p1View) : 'no match'), [match]);
   const rawLimit = matchLogLimit ?? 50;
@@ -170,6 +171,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setExportMeta(null);
     setCopyStatus('idle');
     setPasteStatus('idle');
+    setAttackSelection(null);
   }
 
   function resetGame(): void {
@@ -181,6 +183,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setExportMeta(null);
     setCopyStatus('idle');
     setPasteStatus('idle');
+    setAttackSelection(null);
   }
 
   function applyPlayerCommand(command: Command): void {
@@ -189,15 +192,17 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     }
 
     const result = applyCommand(match.handles[command.player]!, command);
-    setMatch(
-      project(
-        match.handles,
-        match.seed,
-        match.setupOpts,
-        result.issues.length === 0 ? [...match.commands, command] : match.commands,
-      ),
+    const nextMatch = project(
+      match.handles,
+      match.seed,
+      match.setupOpts,
+      result.issues.length === 0 ? [...match.commands, command] : match.commands,
     );
+    setMatch(nextMatch);
     setErrors((current) => ({ ...current, [command.player]: result.issues }));
+    if (nextMatch.p1View.winner !== null) {
+      setAttackSelection(null);
+    }
   }
 
   function drawCard(player: PlayerId): void {
@@ -213,7 +218,30 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
   }
 
   function flipViewer(): void {
+    setAttackSelection(null);
     setViewer((current) => (current === p1 ? p2 : p1));
+  }
+
+  function selectViewer(player: PlayerId): void {
+    setAttackSelection(null);
+    setViewer(player);
+  }
+
+  function onSelectAttacker(instanceId: CardInstanceId): void {
+    setAttackSelection(instanceId);
+  }
+
+  function onAttackTarget(target: CardInstanceId | 'base'): void {
+    if (attackSelection === null) {
+      return;
+    }
+
+    applyPlayerCommand({ type: 'attack', player: viewer, attacker: attackSelection, target });
+    setAttackSelection(null);
+  }
+
+  function onCancelAttack(): void {
+    setAttackSelection(null);
   }
 
   useEffect(() => {
@@ -534,7 +562,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                         data-testid={`view-as-${player}`}
                         key={player}
                         type="button"
-                        onClick={() => setViewer(player)}
+                        onClick={() => selectViewer(player)}
                       >
                         View as {player}
                       </button>
@@ -542,17 +570,21 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                   </div>
                   <BoardView
                     activePlayer={match.p1View.activePlayer}
+                    attackSelection={attackSelection}
                     cardRegistry={buildCardRegistry(useCustomCards && hasCustomCards)}
                     commands={match.commands}
                     issues={errors[viewer] ?? []}
                     view={viewer === p1 ? match.p1View : match.p2View}
                     viewer={viewer}
+                    onAttackTarget={onAttackTarget}
+                    onCancelAttack={onCancelAttack}
                     onDraw={drawCard}
                     onEndPhase={endPhase}
                     onEndTurn={endTurn}
                     onPlayCard={(player, instance) =>
                       applyPlayerCommand({ type: 'playCard', player, instance })
                     }
+                    onSelectAttacker={onSelectAttacker}
                   />
                 </div>
               ) : (
@@ -656,27 +688,40 @@ function BoardView({
   viewer,
   view,
   activePlayer,
+  attackSelection,
   cardRegistry,
   commands,
   issues,
+  onAttackTarget,
+  onCancelAttack,
   onDraw,
   onEndPhase,
   onEndTurn,
   onPlayCard,
+  onSelectAttacker,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
+  readonly attackSelection: CardInstanceId | null;
   readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
+  readonly onAttackTarget: (target: CardInstanceId | 'base') => void;
+  readonly onCancelAttack: () => void;
   readonly onDraw: (player: PlayerId) => void;
   readonly onEndPhase: (player: PlayerId) => void;
   readonly onEndTurn: (player: PlayerId) => void;
   readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
+  readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
 }): JSX.Element {
   const opponent = otherPlayer(viewer);
   const opponentView = view.opponents[opponent]!;
+  const canAttackTarget =
+    attackSelection !== null &&
+    viewer === activePlayer &&
+    view.phase === 'combat' &&
+    view.winner === null;
 
   return (
     <div
@@ -706,13 +751,36 @@ function BoardView({
                 Hand {opponentView.hand.length} · Deck {opponentView.deck.count}
               </span>
             </div>
-            <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
+              {canAttackTarget ? (
+                <button
+                  className="rounded border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/25"
+                  data-testid="attack-target-base"
+                  type="button"
+                  onClick={() => onAttackTarget('base')}
+                >
+                  Attack base
+                </button>
+              ) : null}
+              {attackSelection !== null ? (
+                <button
+                  className="rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                  data-testid="cancel-attack"
+                  type="button"
+                  onClick={onCancelAttack}
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
           </div>
           <FannedHand masked cardCount={opponentView.hand.length} owner={opponent} />
           <BattlefieldStrip
             units={opponentView.battlefield}
             owner={opponent}
             cardRegistry={cardRegistry}
+            mode={{ type: 'target', canTarget: canAttackTarget, onAttackTarget }}
           />
         </div>
       </BoardArea>
@@ -734,6 +802,8 @@ function BoardView({
         onEndPhase={onEndPhase}
         onEndTurn={onEndTurn}
         onPlayCard={onPlayCard}
+        onSelectAttacker={onSelectAttacker}
+        attackSelection={attackSelection}
         view={view}
         viewer={viewer}
       />
@@ -745,6 +815,7 @@ function PlayerArea({
   viewer,
   view,
   activePlayer,
+  attackSelection,
   cardRegistry,
   commands,
   issues,
@@ -752,10 +823,12 @@ function PlayerArea({
   onEndPhase,
   onEndTurn,
   onPlayCard,
+  onSelectAttacker,
 }: {
   readonly viewer: PlayerId;
   readonly view: PlayerView;
   readonly activePlayer: PlayerId;
+  readonly attackSelection: CardInstanceId | null;
   readonly cardRegistry: Map<string, CardDefinition>;
   readonly commands: readonly Command[];
   readonly issues: readonly ValidationIssue[];
@@ -763,11 +836,13 @@ function PlayerArea({
   readonly onEndPhase: (player: PlayerId) => void;
   readonly onEndTurn: (player: PlayerId) => void;
   readonly onPlayCard: (player: PlayerId, instance: CardInstanceId) => void;
+  readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
 }): JSX.Element {
   const isActive = viewer === activePlayer;
   const hasWinner = view.winner !== null;
   const canDraw = view.viewer.deck.length > 0 && !hasWinner;
   const canUseTurnControls = isActive && !hasWinner;
+  const canSelectAttackers = isActive && view.phase === 'combat' && !hasWinner;
   const commandCount = commands.filter((command) => command.player === viewer).length;
   const [sparkBurstKey, setSparkBurstKey] = useState<number | null>(null);
   const previousCommandCount = useRef(commandCount);
@@ -879,6 +954,12 @@ function PlayerArea({
         units={view.viewer.battlefield}
         owner={viewer}
         cardRegistry={cardRegistry}
+        mode={{
+          type: 'attacker',
+          canSelect: canSelectAttackers,
+          selectedAttacker: attackSelection,
+          onSelectAttacker,
+        }}
       />
 
       {issues.length > 0 ? (
@@ -1034,15 +1115,33 @@ function fanTransform(
 
 type BattlefieldUnit = PlayerView['viewer']['battlefield'][number];
 
+type BattlefieldStripMode =
+  | { readonly type: 'plain' }
+  | {
+      readonly type: 'attacker';
+      readonly canSelect: boolean;
+      readonly selectedAttacker: CardInstanceId | null;
+      readonly onSelectAttacker: (instanceId: CardInstanceId) => void;
+    }
+  | {
+      readonly type: 'target';
+      readonly canTarget: boolean;
+      readonly onAttackTarget: (target: CardInstanceId) => void;
+    };
+
 function BattlefieldStrip({
   units,
   owner,
   cardRegistry,
+  mode,
 }: {
   readonly units: readonly BattlefieldUnit[];
   readonly owner: PlayerId;
   readonly cardRegistry: Map<string, CardDefinition>;
+  readonly mode?: BattlefieldStripMode;
 }): JSX.Element {
+  const stripMode: BattlefieldStripMode = mode ?? { type: 'plain' };
+
   return (
     <div
       className="mt-4 rounded border border-[color:var(--oc-border)] bg-zinc-950/80 px-3 py-3 text-sm text-zinc-400"
@@ -1054,9 +1153,60 @@ function BattlefieldStrip({
         <ul className="flex flex-wrap gap-2">
           {units.map((unit) => {
             const def = cardRegistry.get(unit.kind);
+            const remainingHealth = unit.health - unit.damage;
+            const isSelected =
+              stripMode.type === 'attacker' && stripMode.selectedAttacker === unit.id;
+            const canSelect =
+              stripMode.type === 'attacker' && stripMode.canSelect && unit.exhausted === false;
+
             return (
-              <li data-testid={`bf-unit-${unit.id}`} key={unit.id} className="list-none">
+              <li
+                className={`list-none rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-2 ${
+                  unit.exhausted ? 'opacity-60' : ''
+                } ${isSelected ? 'ring-2 ring-orange-300' : ''}`}
+                data-attack={unit.attack}
+                data-damage={unit.damage}
+                data-exhausted={String(unit.exhausted)}
+                data-health={remainingHealth}
+                data-selected={isSelected ? 'true' : 'false'}
+                data-testid={`bf-unit-${unit.id}`}
+                key={unit.id}
+              >
                 <Card kind={unit.kind} name={def?.name} type={def?.type} cost={def?.cost.energy} />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-zinc-100">
+                  <span className="rounded bg-zinc-800 px-2 py-1">ATK {unit.attack}</span>
+                  <span className="rounded bg-zinc-800 px-2 py-1">HP {remainingHealth}</span>
+                  {unit.exhausted ? (
+                    <span className="rounded border border-yellow-400/40 px-2 py-1 text-yellow-100">
+                      Exhausted
+                    </span>
+                  ) : null}
+                </div>
+                {stripMode.type === 'attacker' ? (
+                  <button
+                    className={`mt-2 w-full rounded border border-[color:var(--oc-accent)] px-2 py-1 text-xs font-semibold ${
+                      canSelect
+                        ? 'bg-[color:var(--oc-accent-soft)] text-orange-100 hover:bg-orange-500/25'
+                        : 'cursor-not-allowed text-zinc-500 opacity-60'
+                    }`}
+                    data-testid={`attack-with-${unit.id}`}
+                    disabled={!canSelect}
+                    type="button"
+                    onClick={() => stripMode.onSelectAttacker(unit.id)}
+                  >
+                    Attack
+                  </button>
+                ) : null}
+                {stripMode.type === 'target' && stripMode.canTarget ? (
+                  <button
+                    className="mt-2 w-full rounded border border-red-400/60 bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-100 hover:bg-red-500/25"
+                    data-testid={`attack-target-${unit.id}`}
+                    type="button"
+                    onClick={() => stripMode.onAttackTarget(unit.id)}
+                  >
+                    Target
+                  </button>
+                ) : null}
               </li>
             );
           })}

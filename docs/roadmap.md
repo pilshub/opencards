@@ -10,7 +10,11 @@ Every phase must serve this invariant. If a feature cannot be replayed or hashed
 
 ## Current State
 
-Planning scaffold. Documentation, a single starter-deck example, and an empty packages directory. No workspace, no engine code, no tests, no app.
+OpenCards is now a monorepo with deterministic core RNG, shuffle, hashing, command dispatch, replay, and hidden-information player projections.
+Schema validation ships with stable issue codes, and the browser demo on Vercel supports turns, energy, `playCard`, combat with units attacking bases or units, and base-damage wins.
+The app includes card and format editors backed by localStorage.
+The quality gate covers typecheck, lint, format, tests, coverage floors, replay matrix, and hidden-info verification.
+Phases -1 through 3.3 are shipped; phases 3.5, 4, 5, 6, 7, and 8 remain pending.
 
 ## Development Principles
 
