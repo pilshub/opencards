@@ -15,6 +15,51 @@ export interface Unit {
   readonly damage: number;
   /** Cannot attack when true (summoning sickness or already attacked this turn). */
   readonly exhausted: boolean;
+  /** Optional named counters carried by the unit. */
+  readonly counters?: Readonly<Record<string, number>>;
+  /** Temporary stat modifiers to revert at end of turn. */
+  readonly temporaryModifiers?: readonly TemporaryStatModifier[];
+}
+
+/** Temporary unit stat delta that expires at end of turn. */
+export interface TemporaryStatModifier {
+  /** Modified stat. */
+  readonly stat: 'attack' | 'health';
+  /** Applied delta. */
+  readonly amount: number;
+}
+
+/** Effect operations supported by the Phase 4 engine. */
+export type EffectOp =
+  | 'gainResource'
+  | 'drawCards'
+  | 'dealDamage'
+  | 'heal'
+  | 'summonUnit'
+  | 'moveCard'
+  | 'discardCards'
+  | 'addCounter'
+  | 'modifyStatUntilEndOfTurn';
+
+/** Engine-local effect target selectors supported by the Phase 4 engine. */
+export type TargetSelector =
+  | 'self'
+  | 'ownUnit'
+  | 'enemyUnit'
+  | 'enemyBase'
+  | 'enemyUnitOrBase'
+  | 'anyUnit';
+
+/** Engine-local data effect attached to a CardSpec. */
+export interface EngineEffect {
+  readonly op: EffectOp;
+  readonly amount?: number;
+  readonly target?: TargetSelector;
+  readonly kind?: CardKind;
+  readonly counter?: string;
+  readonly stat?: 'attack' | 'health';
+  readonly from?: ZoneId;
+  readonly to?: ZoneId;
 }
 
 /** Engine-local card specification defining type, cost, and optional combat stats. */
@@ -24,6 +69,7 @@ export interface CardSpec {
   readonly cost: number; // energy cost, integer >= 0
   readonly attack?: number; // units only
   readonly health?: number; // units only
+  readonly effects?: readonly EngineEffect[]; // tactics only in Phase 4
 }
 
 /** Stable card definition identifier. */
@@ -33,7 +79,7 @@ export type CardKind = string;
 export type CardInstanceId = string & { readonly __brand: 'CardInstanceId' };
 
 /** Canonical zone identifiers supported by the Phase 1 kernel. */
-export type ZoneId = 'hand' | 'deck' | 'discard' | 'exile' | 'battlefield';
+export type ZoneId = 'hand' | 'deck' | 'discard' | 'exile' | 'battlefield' | 'stack';
 
 /** Turn phase identifiers supported by the Phase 1 kernel. */
 export type Phase = 'start' | 'main' | 'combat' | 'end';
@@ -54,6 +100,20 @@ export interface CardInstance {
 
 /** Ordered card zone. */
 export type Zone = CardInstance[];
+
+/** Stack entry for a played tactic. Top of stack is the last array element (LIFO). */
+export interface StackItem {
+  /** Source card instance id. */
+  readonly source: CardInstanceId;
+  /** Player who controls the stack item. */
+  readonly controller: PlayerId;
+  /** Source card kind. */
+  readonly kind: CardKind;
+  /** Effects resolved in order when this stack item resolves. */
+  readonly effects: readonly EngineEffect[];
+  /** Chosen target for targeted effects, null before selection or for no-target effects. */
+  readonly target: CardInstanceId | 'base' | null;
+}
 
 /** Canonical per-player state. */
 export interface Player {
@@ -93,6 +153,8 @@ export interface State {
   readonly winner: PlayerId | null;
   /** Card database indexed by kind. Part of canonical state and replay hash. */
   readonly cards: Record<CardKind, CardSpec>;
+  /** Public deterministic effect stack. Top of stack is the last element. */
+  readonly stack: readonly StackItem[];
 }
 
 /** Player command accepted by the dispatcher. */
@@ -101,6 +163,12 @@ export type Command =
   | { readonly type: 'endPhase'; readonly player: PlayerId }
   | { readonly type: 'endTurn'; readonly player: PlayerId }
   | { readonly type: 'playCard'; readonly player: PlayerId; readonly instance: CardInstanceId }
+  | {
+      readonly type: 'chooseTarget';
+      readonly player: PlayerId;
+      readonly target: CardInstanceId | 'base';
+    }
+  | { readonly type: 'resolveStack'; readonly player: PlayerId }
   | {
       readonly type: 'attack';
       readonly player: PlayerId;
@@ -153,6 +221,48 @@ export type Event =
       readonly target: CardInstanceId | 'base';
       readonly amount: number;
       readonly owner: PlayerId;
+    }
+  | {
+      readonly type: 'healed';
+      readonly target: CardInstanceId | 'base';
+      readonly amount: number;
+      readonly owner: PlayerId;
+    }
+  | {
+      readonly type: 'targetChosen';
+      readonly player: PlayerId;
+      readonly source: CardInstanceId;
+      readonly target: CardInstanceId | 'base';
+    }
+  | {
+      readonly type: 'unitSummoned';
+      readonly player: PlayerId;
+      readonly unit: Unit;
+    }
+  | {
+      readonly type: 'cardsDiscarded';
+      readonly player: PlayerId;
+      readonly instances: readonly CardInstance[];
+    }
+  | {
+      readonly type: 'cardMoved';
+      readonly instance: CardInstance;
+      readonly from: ZoneId;
+      readonly to: ZoneId;
+    }
+  | {
+      readonly type: 'counterAdded';
+      readonly target: CardInstanceId;
+      readonly owner: PlayerId;
+      readonly counter: string;
+      readonly amount: number;
+    }
+  | {
+      readonly type: 'statModified';
+      readonly target: CardInstanceId;
+      readonly owner: PlayerId;
+      readonly stat: 'attack' | 'health';
+      readonly amount: number;
     }
   | {
       readonly type: 'unitDestroyed';
@@ -254,4 +364,6 @@ export interface PlayerView {
   readonly turn: number;
   /** Winner of the match, null while the game is live. */
   readonly winner: PlayerId | null;
+  /** Public deterministic effect stack. */
+  readonly stack: readonly StackItem[];
 }

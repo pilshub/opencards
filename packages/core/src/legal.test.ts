@@ -30,6 +30,7 @@ const baseState = (): State => ({
   turn: 1,
   winner: null,
   cards: { 'unit-a': unitSpec, 'tactic-a': tacticSpec },
+  stack: [],
   players: {
     [p1]: {
       id: p1,
@@ -187,5 +188,75 @@ describe('getLegalCommands', () => {
 
     expect(json).toContain('p1-visible-hand');
     expect(json).not.toContain('p2-hidden-hand');
+  });
+
+  it('lists valid chooseTarget candidates for the top stack item and filters resolveStack until targeted', () => {
+    const enemyA = makeUnit('p2-a' as CardInstanceId, 'unit-a');
+    const enemyB = makeUnit('p2-b' as CardInstanceId, 'unit-a');
+    const state: State = {
+      ...baseState(),
+      phase: 'main',
+      stack: [
+        {
+          source: 'p1-flare' as CardInstanceId,
+          controller: p1,
+          kind: 'flare-strike',
+          effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+          target: null,
+        },
+      ],
+      players: {
+        ...baseState().players,
+        [p2]: { ...baseState().players[p2]!, battlefield: [enemyA, enemyB] },
+      },
+    };
+
+    const p1Legal = getLegalCommands(state, p1);
+    const p2Legal = getLegalCommands(state, p2);
+
+    expect(p1Legal).toContainEqual({ type: 'chooseTarget', player: p1, target: enemyA.id });
+    expect(p1Legal).toContainEqual({ type: 'chooseTarget', player: p1, target: enemyB.id });
+    expect(p1Legal).toContainEqual({ type: 'chooseTarget', player: p1, target: 'base' });
+    expect(p1Legal).not.toContainEqual({ type: 'resolveStack', player: p1 });
+    expect(p2Legal).not.toContainEqual({ type: 'chooseTarget', player: p2, target: enemyA.id });
+    expect(p2Legal).not.toContainEqual({ type: 'resolveStack', player: p2 });
+  });
+
+  it('lists resolveStack once the top stack item has a valid target', () => {
+    const state: State = {
+      ...baseState(),
+      phase: 'main',
+      stack: [
+        {
+          source: 'p1-flare' as CardInstanceId,
+          controller: p1,
+          kind: 'flare-strike',
+          effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+          target: 'base',
+        },
+      ],
+    };
+
+    const legal = getLegalCommands(state, p1);
+
+    expect(legal).toContainEqual({ type: 'resolveStack', player: p1 });
+  });
+
+  it('filters stack candidates for an unknown viewer through apply', () => {
+    const ghost = 'ghost' as PlayerId;
+    const state: State = {
+      ...baseState(),
+      stack: [
+        {
+          source: 'ghost-flare' as CardInstanceId,
+          controller: ghost,
+          kind: 'flare-strike',
+          effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+          target: null,
+        },
+      ],
+    };
+
+    expect(getLegalCommands(state, ghost)).toEqual([]);
   });
 });

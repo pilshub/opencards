@@ -15,6 +15,7 @@ const state = (): State => ({
   turn: 1,
   winner: null,
   cards: {},
+  stack: [],
   players: {
     [p1]: {
       id: p1,

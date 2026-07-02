@@ -1,7 +1,7 @@
 import type { CardInstance, State, Zone, ZoneId } from './types.js';
 
-/** Zone identifiers that hold CardInstance arrays (excludes battlefield which holds Unit[]). */
-export type CardZoneId = Exclude<ZoneId, 'battlefield'>;
+/** Zone identifiers that hold CardInstance arrays on Player (excludes battlefield and stack). */
+export type CardZoneId = Exclude<ZoneId, 'battlefield' | 'stack'>;
 
 /** Move a card instance between CardInstance zones, preserving order and appending to the destination. */
 export function moveCard(

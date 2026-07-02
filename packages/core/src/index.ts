@@ -18,6 +18,8 @@ export type {
   CardKind,
   CardSpec,
   Command,
+  EffectOp,
+  EngineEffect,
   HiddenDeckView,
   MaskedCardView,
   OpponentPlayerView,
@@ -26,6 +28,8 @@ export type {
   PlayerId,
   PlayerView,
   RNGState,
+  StackItem,
+  TargetSelector,
   ValidationIssue,
   ZoneId,
 } from './types.js';

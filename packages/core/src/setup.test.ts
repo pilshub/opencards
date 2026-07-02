@@ -42,6 +42,7 @@ describe('createInitialState', () => {
     expect(state.players[p2]?.base).toBe(20);
     expect(state.players[p2]?.energy).toBe(0);
     expect(state.winner).toBeNull();
+    expect(state.stack).toEqual([]);
   });
 
   it('applies configured baseTotal and startingEnergy to each player', () => {

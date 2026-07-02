@@ -45,5 +45,9 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
     phase: state.phase,
     turn: state.turn,
     winner: state.winner,
+    stack: state.stack.map((item) => ({
+      ...item,
+      effects: item.effects.map((effect) => ({ ...effect })),
+    })),
   };
 }

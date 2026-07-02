@@ -72,7 +72,16 @@ export function createInitialState(opts: SetupOpts): State {
   for (const spec of opts.cards ?? []) {
     cards[spec.kind] = spec;
   }
-  let state: State = { rng, players, activePlayer, phase: 'start', turn: 1, winner: null, cards };
+  let state: State = {
+    rng,
+    players,
+    activePlayer,
+    phase: 'start',
+    turn: 1,
+    winner: null,
+    cards,
+    stack: [],
+  };
 
   for (const playerId of opts.players) {
     for (let draws = 0; draws < opts.openingHandSize; draws += 1) {

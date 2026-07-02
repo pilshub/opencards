@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardInstanceId, CardSpec, Command, PlayerId, State, Unit } from './types.js';
-import { apply, checkWin } from './dispatcher.js';
+import { apply, applyDamageToTarget, checkWin, validateTarget } from './dispatcher.js';
 import { seedRng } from './rng.js';
 
 const p1 = 'p1' as PlayerId;
@@ -29,6 +29,7 @@ const baseState = (): State => ({
   turn: 1,
   winner: null,
   cards: {},
+  stack: [],
   players: {
     [p1]: {
       id: p1,
@@ -424,7 +425,7 @@ describe('playCard', () => {
     ]);
   });
 
-  it('plays a tactic: moves hand->discard, decrements energy, emits resourceSpent then cardPlayed to discard', () => {
+  it('plays a tactic: pushes it to the stack, decrements energy, emits resourceSpent then cardPlayed to stack', () => {
     const state = playCardBaseState();
     const result = apply(state, {
       type: 'playCard',
@@ -435,14 +436,23 @@ describe('playCard', () => {
     expect(result.issues).toEqual([]);
     expect(result.state.players[p1]?.energy).toBe(4); // 5 - 1
     expect(result.state.players[p1]?.hand).toEqual([{ id: 'p1-c00', kind: 'unit-a' }]);
-    expect(result.state.players[p1]?.discard).toEqual([{ id: 'p1-c01', kind: 'tactic-a' }]);
+    expect(result.state.players[p1]?.discard).toEqual([]);
+    expect(result.state.stack).toEqual([
+      {
+        source: 'p1-c01',
+        controller: p1,
+        kind: 'tactic-a',
+        effects: [],
+        target: null,
+      },
+    ]);
     expect(result.events).toEqual([
       { type: 'resourceSpent', player: p1, resource: 'energy', amount: 1 },
       {
         type: 'cardPlayed',
         player: p1,
         instance: { id: 'p1-c01', kind: 'tactic-a' },
-        to: 'discard',
+        to: 'stack',
       },
     ]);
   });
@@ -552,6 +562,557 @@ describe('playCard', () => {
     expect(result.state).toBe(state);
     expect(result.events).toEqual([]);
     expect(result.issues).toEqual([{ code: 'UNKNOWN_PLAYER', message: 'Unknown player: missing' }]);
+  });
+});
+
+describe('effect stack', () => {
+  it('validates every Phase 4 target selector with the shared matrix', () => {
+    const ownUnitId = 'p1-own' as CardInstanceId;
+    const enemyUnitId = 'p2-enemy' as CardInstanceId;
+    const state: State = {
+      ...playCardBaseState(),
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          battlefield: [makeUnit(ownUnitId, 'unit-a', 1, 2)],
+        },
+        [p2]: {
+          ...playCardBaseState().players[p2]!,
+          battlefield: [makeUnit(enemyUnitId, 'unit-a', 1, 2)],
+        },
+      },
+    };
+
+    expect(validateTarget(state, p1, 'self', 'base')).toBe(true);
+    expect(validateTarget(state, p1, 'self', ownUnitId)).toBe(false);
+    expect(validateTarget(state, p1, 'ownUnit', ownUnitId)).toBe(true);
+    expect(validateTarget(state, p1, 'ownUnit', 'base')).toBe(false);
+    expect(validateTarget(state, p1, 'enemyUnit', enemyUnitId)).toBe(true);
+    expect(validateTarget(state, p1, 'enemyUnit', 'base')).toBe(false);
+    expect(validateTarget(state, p1, 'enemyBase', 'base')).toBe(true);
+    expect(validateTarget(state, p1, 'enemyBase', enemyUnitId)).toBe(false);
+    expect(validateTarget(state, p1, 'enemyUnitOrBase', enemyUnitId)).toBe(true);
+    expect(validateTarget(state, p1, 'enemyUnitOrBase', 'base')).toBe(true);
+    expect(validateTarget(state, p1, 'enemyUnitOrBase', ownUnitId)).toBe(false);
+    expect(validateTarget(state, p1, 'anyUnit', ownUnitId)).toBe(true);
+    expect(validateTarget(state, p1, 'anyUnit', enemyUnitId)).toBe(true);
+    expect(validateTarget(state, p1, 'anyUnit', 'base')).toBe(false);
+    expect(validateTarget(state, unknown, 'enemyBase', 'base')).toBe(false);
+    expect(validateTarget(state, p1, 'enemyBase', null)).toBe(false);
+  });
+
+  it('flare-strike resolves end-to-end from CardSpec.effects with no per-card code', () => {
+    const flareStrike: CardSpec = {
+      kind: 'flare-strike',
+      type: 'tactic',
+      cost: 1,
+      effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+    };
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { 'flare-strike': flareStrike },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-flare' as CardInstanceId, kind: 'flare-strike' }],
+          energy: 1,
+        },
+      },
+    };
+
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-flare' as CardInstanceId,
+    });
+    const targeted = apply(played.state, { type: 'chooseTarget', player: p1, target: 'base' });
+    const resolved = apply(targeted.state, { type: 'resolveStack', player: p1 });
+
+    expect(played.issues).toEqual([]);
+    expect(played.state.stack).toEqual([
+      {
+        source: 'p1-flare',
+        controller: p1,
+        kind: 'flare-strike',
+        effects: flareStrike.effects,
+        target: null,
+      },
+    ]);
+    expect(played.events).toEqual([
+      { type: 'resourceSpent', player: p1, resource: 'energy', amount: 1 },
+      {
+        type: 'cardPlayed',
+        player: p1,
+        instance: { id: 'p1-flare', kind: 'flare-strike' },
+        to: 'stack',
+      },
+    ]);
+    expect(targeted.issues).toEqual([]);
+    expect(targeted.events).toEqual([
+      { type: 'targetChosen', player: p1, source: 'p1-flare', target: 'base' },
+    ]);
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.state.stack).toEqual([]);
+    expect(resolved.state.players[p2]?.base).toBe(18);
+    expect(resolved.state.players[p1]?.discard).toEqual([{ id: 'p1-flare', kind: 'flare-strike' }]);
+    expect(resolved.events).toEqual([
+      { type: 'damageDealt', target: 'base', amount: 2, owner: p2 },
+    ]);
+  });
+
+  it('resolves a test-only Heal 3 to self CardSpec without engine edits', () => {
+    const healSelf: CardSpec = {
+      kind: 'heal-self',
+      type: 'tactic',
+      cost: 0,
+      effects: [{ op: 'heal', amount: 3, target: 'self' }],
+    };
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { 'heal-self': healSelf },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-heal' as CardInstanceId, kind: 'heal-self' }],
+          base: 10,
+          energy: 0,
+        },
+      },
+    };
+
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-heal' as CardInstanceId,
+    });
+    const resolved = apply(played.state, { type: 'resolveStack', player: p1 });
+
+    expect(played.issues).toEqual([]);
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.state.players[p1]?.base).toBe(13);
+    expect(resolved.state.players[p1]?.discard).toEqual([{ id: 'p1-heal', kind: 'heal-self' }]);
+    expect(resolved.events).toEqual([{ type: 'healed', target: 'base', amount: 3, owner: p1 }]);
+  });
+
+  it('effect dealDamage uses the shared combat death path for destroyed units', () => {
+    const strike: CardSpec = {
+      kind: 'unit-strike',
+      type: 'tactic',
+      cost: 0,
+      effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnit' }],
+    };
+    const defenderId = 'p2-defender' as CardInstanceId;
+    const defender = makeUnit(defenderId, 'unit-a', 1, 2);
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { 'unit-strike': strike },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-strike' as CardInstanceId, kind: 'unit-strike' }],
+          energy: 0,
+        },
+        [p2]: {
+          ...playCardBaseState().players[p2]!,
+          battlefield: [defender],
+        },
+      },
+    };
+
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-strike' as CardInstanceId,
+    });
+    const targeted = apply(played.state, {
+      type: 'chooseTarget',
+      player: p1,
+      target: defenderId,
+    });
+    const resolved = apply(targeted.state, { type: 'resolveStack', player: p1 });
+
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.state.players[p2]?.battlefield).toEqual([]);
+    expect(resolved.state.players[p2]?.discard).toEqual([{ id: defenderId, kind: 'unit-a' }]);
+    expect(resolved.events).toEqual([
+      { type: 'damageDealt', target: defenderId, amount: 2, owner: p2 },
+      { type: 'unitDestroyed', owner: p2, instance: { id: defenderId, kind: 'unit-a' } },
+    ]);
+  });
+
+  it('rejects illegal target choices and leaves state unchanged', () => {
+    const strike: CardSpec = {
+      kind: 'enemy-only-strike',
+      type: 'tactic',
+      cost: 0,
+      effects: [{ op: 'dealDamage', amount: 1, target: 'enemyUnit' }],
+    };
+    const ownUnitId = 'p1-own' as CardInstanceId;
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { 'enemy-only-strike': strike },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-strike' as CardInstanceId, kind: 'enemy-only-strike' }],
+          battlefield: [makeUnit(ownUnitId, 'unit-a', 1, 2)],
+          energy: 0,
+        },
+      },
+    };
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-strike' as CardInstanceId,
+    });
+    const result = apply(played.state, { type: 'chooseTarget', player: p1, target: ownUnitId });
+
+    expect(played.issues).toEqual([]);
+    expect(result.state).toBe(played.state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([{ code: 'INVALID_TARGET', message: 'Invalid target: p1-own' }]);
+  });
+
+  it('requires a target before resolving a targeted stack item', () => {
+    const strike: CardSpec = {
+      kind: 'needs-target',
+      type: 'tactic',
+      cost: 0,
+      effects: [{ op: 'dealDamage', amount: 1, target: 'enemyUnitOrBase' }],
+    };
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { 'needs-target': strike },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-needs-target' as CardInstanceId, kind: 'needs-target' }],
+          energy: 0,
+        },
+      },
+    };
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-needs-target' as CardInstanceId,
+    });
+    const result = apply(played.state, { type: 'resolveStack', player: p1 });
+
+    expect(played.issues).toEqual([]);
+    expect(result.state).toBe(played.state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([
+      {
+        code: 'TARGET_REQUIRED',
+        message: 'A target is required before this stack item can resolve',
+      },
+    ]);
+  });
+
+  it('returns EMPTY_STACK for stack commands when no stack item exists', () => {
+    const choose = apply(playCardBaseState(), {
+      type: 'chooseTarget',
+      player: p1,
+      target: 'base',
+    });
+    const resolve = apply(playCardBaseState(), { type: 'resolveStack', player: p1 });
+
+    expect(choose.state).toEqual(playCardBaseState());
+    expect(choose.events).toEqual([]);
+    expect(choose.issues).toEqual([{ code: 'EMPTY_STACK', message: 'The stack is empty' }]);
+    expect(resolve.state).toEqual(playCardBaseState());
+    expect(resolve.events).toEqual([]);
+    expect(resolve.issues).toEqual([{ code: 'EMPTY_STACK', message: 'The stack is empty' }]);
+  });
+
+  it('returns UNKNOWN_PLAYER before stack command validation', () => {
+    const state: State = {
+      ...playCardBaseState(),
+      stack: [
+        {
+          source: 'p1-flare' as CardInstanceId,
+          controller: p1,
+          kind: 'flare-strike',
+          effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+          target: null,
+        },
+      ],
+    };
+
+    const choose = apply(state, { type: 'chooseTarget', player: unknown, target: 'base' });
+    const resolve = apply(state, { type: 'resolveStack', player: unknown });
+
+    expect(choose.issues).toEqual([{ code: 'UNKNOWN_PLAYER', message: 'Unknown player: missing' }]);
+    expect(resolve.issues).toEqual([
+      { code: 'UNKNOWN_PLAYER', message: 'Unknown player: missing' },
+    ]);
+  });
+
+  it('returns NOT_CONTROLLER when another player targets or resolves the top stack item', () => {
+    const state: State = {
+      ...playCardBaseState(),
+      stack: [
+        {
+          source: 'p1-flare' as CardInstanceId,
+          controller: p1,
+          kind: 'flare-strike',
+          effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+          target: null,
+        },
+      ],
+    };
+
+    const choose = apply(state, { type: 'chooseTarget', player: p2, target: 'base' });
+    const resolve = apply(state, { type: 'resolveStack', player: p2 });
+
+    expect(choose.state).toBe(state);
+    expect(choose.events).toEqual([]);
+    expect(choose.issues).toEqual([
+      { code: 'NOT_CONTROLLER', message: 'Player does not control the top stack item: p2' },
+    ]);
+    expect(resolve.state).toBe(state);
+    expect(resolve.events).toEqual([]);
+    expect(resolve.issues).toEqual([
+      { code: 'NOT_CONTROLLER', message: 'Player does not control the top stack item: p2' },
+    ]);
+  });
+
+  it('rejects choosing a target for a no-target stack item', () => {
+    const state: State = {
+      ...playCardBaseState(),
+      stack: [
+        {
+          source: 'p1-noop' as CardInstanceId,
+          controller: p1,
+          kind: 'no-op',
+          effects: [],
+          target: null,
+        },
+      ],
+    };
+
+    const result = apply(state, { type: 'chooseTarget', player: p1, target: 'base' });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([{ code: 'INVALID_TARGET', message: 'Invalid target: base' }]);
+  });
+
+  it('rejects resolving when a previously chosen target is no longer valid', () => {
+    const missingTarget = 'p2-gone' as CardInstanceId;
+    const state: State = {
+      ...playCardBaseState(),
+      stack: [
+        {
+          source: 'p1-strike' as CardInstanceId,
+          controller: p1,
+          kind: 'strike',
+          effects: [{ op: 'dealDamage', amount: 1, target: 'enemyUnit' }],
+          target: missingTarget,
+        },
+      ],
+    };
+
+    const result = apply(state, { type: 'resolveStack', player: p1 });
+
+    expect(result.state).toBe(state);
+    expect(result.events).toEqual([]);
+    expect(result.issues).toEqual([{ code: 'INVALID_TARGET', message: 'Invalid target: p2-gone' }]);
+  });
+
+  it('uses deterministic defaults for optional v1 operation fields', () => {
+    const defaults: CardSpec = {
+      kind: 'defaults',
+      type: 'tactic',
+      cost: 0,
+      effects: [
+        { op: 'gainResource' },
+        { op: 'drawCards' },
+        { op: 'summonUnit' },
+        { op: 'discardCards' },
+        { op: 'addCounter', target: 'ownUnit' },
+        { op: 'modifyStatUntilEndOfTurn', target: 'ownUnit' },
+        { op: 'moveCard' },
+      ],
+    };
+    const unitId = 'p1-board' as CardInstanceId;
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { defaults },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-defaults' as CardInstanceId, kind: 'defaults' }],
+          battlefield: [makeUnit(unitId, 'unit-a', 2, 3)],
+          energy: 0,
+        },
+      },
+    };
+
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-defaults' as CardInstanceId,
+    });
+    const targeted = apply(played.state, { type: 'chooseTarget', player: p1, target: unitId });
+    const resolved = apply(targeted.state, { type: 'resolveStack', player: p1 });
+
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.state.players[p1]?.energy).toBe(0);
+    expect(resolved.state.players[p1]?.hand).toEqual([]);
+    expect(resolved.state.players[p1]?.discard).toEqual([{ id: 'p1-defaults', kind: 'defaults' }]);
+    expect(resolved.state.players[p1]?.battlefield).toEqual([
+      {
+        ...makeUnit(unitId, 'unit-a', 2, 3),
+        counters: { counter: 0 },
+        temporaryModifiers: [{ stat: 'attack', amount: 0 }],
+      },
+      {
+        id: 'p1-defaults-summon-2',
+        kind: 'defaults',
+        attack: 0,
+        health: 1,
+        damage: 0,
+        exhausted: true,
+      },
+    ]);
+    expect(resolved.events).toEqual([
+      { type: 'resourceGained', player: p1, resource: 'energy', amount: 0 },
+      {
+        type: 'unitSummoned',
+        player: p1,
+        unit: {
+          id: 'p1-defaults-summon-2',
+          kind: 'defaults',
+          attack: 0,
+          health: 1,
+          damage: 0,
+          exhausted: true,
+        },
+      },
+      { type: 'cardsDiscarded', player: p1, instances: [] },
+      { type: 'counterAdded', target: unitId, owner: p1, counter: 'counter', amount: 0 },
+      { type: 'statModified', target: unitId, owner: p1, stat: 'attack', amount: 0 },
+      {
+        type: 'cardMoved',
+        instance: { id: 'p1-defaults', kind: 'defaults' },
+        from: 'stack',
+        to: 'discard',
+      },
+    ]);
+  });
+
+  it('resolves remaining v1 operations through generic data handlers', () => {
+    const toolbox: CardSpec = {
+      kind: 'toolbox',
+      type: 'tactic',
+      cost: 0,
+      effects: [
+        { op: 'gainResource', amount: 2 },
+        { op: 'drawCards', amount: 2 },
+        { op: 'summonUnit', kind: 'unit-b' },
+        { op: 'discardCards', amount: 1 },
+        { op: 'addCounter', amount: 2, target: 'ownUnit', counter: 'charge' },
+        { op: 'modifyStatUntilEndOfTurn', amount: 1, target: 'ownUnit', stat: 'attack' },
+        { op: 'moveCard', from: 'discard', to: 'exile' },
+      ],
+    };
+    const unitB: CardSpec = { kind: 'unit-b', type: 'unit', cost: 0, attack: 4, health: 5 };
+    const unitId = 'p1-board' as CardInstanceId;
+    const state: State = {
+      ...playCardBaseState(),
+      cards: { toolbox, 'unit-b': unitB },
+      players: {
+        ...playCardBaseState().players,
+        [p1]: {
+          ...playCardBaseState().players[p1]!,
+          hand: [{ id: 'p1-toolbox' as CardInstanceId, kind: 'toolbox' }],
+          deck: [{ id: 'p1-drawn' as CardInstanceId, kind: 'unit-a' }],
+          battlefield: [makeUnit(unitId, 'unit-a', 2, 3)],
+          energy: 0,
+        },
+      },
+    };
+
+    const played = apply(state, {
+      type: 'playCard',
+      player: p1,
+      instance: 'p1-toolbox' as CardInstanceId,
+    });
+    const targeted = apply(played.state, { type: 'chooseTarget', player: p1, target: unitId });
+    const resolved = apply(targeted.state, { type: 'resolveStack', player: p1 });
+    const ended = apply(resolved.state, { type: 'endTurn', player: p1 });
+
+    expect(resolved.issues).toEqual([]);
+    expect(resolved.state.players[p1]?.energy).toBe(2);
+    expect(resolved.state.players[p1]?.hand).toEqual([]);
+    expect(resolved.state.players[p1]?.discard).toEqual([
+      { id: 'p1-drawn', kind: 'unit-a' },
+      { id: 'p1-toolbox', kind: 'toolbox' },
+    ]);
+    expect(resolved.state.players[p1]?.battlefield).toEqual([
+      {
+        ...makeUnit(unitId, 'unit-a', 2, 3),
+        attack: 3,
+        counters: { charge: 2 },
+        temporaryModifiers: [{ stat: 'attack', amount: 1 }],
+      },
+      {
+        id: 'p1-toolbox-summon-2',
+        kind: 'unit-b',
+        attack: 4,
+        health: 5,
+        damage: 0,
+        exhausted: true,
+      },
+    ]);
+    expect(resolved.events).toEqual([
+      { type: 'resourceGained', player: p1, resource: 'energy', amount: 2 },
+      { type: 'cardDrawn', player: p1, instance: { id: 'p1-drawn', kind: 'unit-a' } },
+      {
+        type: 'unitSummoned',
+        player: p1,
+        unit: {
+          id: 'p1-toolbox-summon-2',
+          kind: 'unit-b',
+          attack: 4,
+          health: 5,
+          damage: 0,
+          exhausted: true,
+        },
+      },
+      {
+        type: 'cardsDiscarded',
+        player: p1,
+        instances: [{ id: 'p1-drawn', kind: 'unit-a' }],
+      },
+      {
+        type: 'counterAdded',
+        target: unitId,
+        owner: p1,
+        counter: 'charge',
+        amount: 2,
+      },
+      { type: 'statModified', target: unitId, owner: p1, stat: 'attack', amount: 1 },
+      {
+        type: 'cardMoved',
+        instance: { id: 'p1-toolbox', kind: 'toolbox' },
+        from: 'discard',
+        to: 'exile',
+      },
+    ]);
+    expect(ended.issues).toEqual([]);
+    expect(ended.state.players[p1]?.battlefield[0]).toEqual({
+      ...makeUnit(unitId, 'unit-a', 2, 3),
+      counters: { charge: 2 },
+    });
   });
 });
 
@@ -798,6 +1359,21 @@ describe('attack', () => {
   });
 });
 
+describe('damage helpers', () => {
+  it('leave state unchanged when the owner or unit target cannot be found', () => {
+    const state = baseState();
+
+    expect(applyDamageToTarget(state, unknown, 'base', 1, [])).toEqual({
+      state,
+      events: [],
+    });
+    expect(applyDamageToTarget(state, p1, 'missing-unit' as CardInstanceId, 1, [])).toEqual({
+      state,
+      events: [],
+    });
+  });
+});
+
 // --- win-check helper ---
 
 describe('checkWin', () => {
@@ -814,6 +1390,20 @@ describe('checkWin', () => {
 
     expect(newState.winner).toBe(p2);
     expect(events).toEqual([{ type: 'gameEnded', winner: p2 }]);
+  });
+
+  it('does not set a winner in a degenerate single-player state', () => {
+    const state: State = {
+      ...baseState(),
+      players: {
+        [p1]: { ...baseState().players[p1]!, base: 0 },
+      },
+    };
+
+    const { state: newState, events } = checkWin(state, []);
+
+    expect(newState).toBe(state);
+    expect(events).toEqual([]);
   });
 
   it('returns state unchanged when no player base is <= 0', () => {

@@ -32,6 +32,15 @@ const state: State = {
   turn: 2,
   winner: null,
   cards: {},
+  stack: [
+    {
+      source: 'p1-c06' as CardInstanceId,
+      controller: p1,
+      kind: 'public-stack-tactic',
+      effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
+      target: 'base',
+    },
+  ],
   players: {
     [p1]: {
       id: p1,
@@ -135,6 +144,15 @@ describe('getView', () => {
     expect(JSON.stringify(p1View)).toContain('public-opponent-discard');
     expect(JSON.stringify(p2View)).toContain('public-battlefield');
     expect(JSON.stringify(p2View)).toContain('public-discard');
+  });
+
+  it('projects the stack as public information for both players', () => {
+    const p1View = getView(state, p1);
+    const p2View = getView(state, p2);
+
+    expect(p1View.stack).toEqual(state.stack);
+    expect(p2View.stack).toEqual(state.stack);
+    expect(JSON.stringify(p2View.stack)).toContain('public-stack-tactic');
   });
 
   it('exposes base, energy, drawnThisTurn, and winner for the viewer and opponents', () => {
