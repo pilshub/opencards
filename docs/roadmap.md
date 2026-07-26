@@ -3,18 +3,26 @@
 ## North Star
 
 ```text
-card db hash + decklist hash + setup + seed + ordered commands = final state hash
+schemaVersion + seed + setupOpts + ordered commands = final state hash
 ```
 
-Every phase must serve this invariant. If a feature cannot be replayed or hashed, it is out of scope until it can.
+Every phase must serve this invariant. `setupOpts` carries card definitions,
+effects, optional decklists, format values and players. If a feature cannot be
+replayed or hashed, it is out of scope until it can.
 
 ## Current State
 
-OpenCards is now a monorepo with deterministic core RNG, shuffle, hashing, command dispatch, replay, and hidden-information player projections.
-Schema validation ships with stable issue codes, and the browser demo on Vercel supports turns, energy, `playCard`, combat with units attacking bases or units, and base-damage wins.
-The app includes card and format editors backed by localStorage.
-The quality gate covers typecheck, lint, format, tests, coverage floors, replay matrix, and hidden-info verification.
-Phases -1 through 3.3 are shipped; phases 3.5, 4, 5, 6, 7, and 8 remain pending.
+The original phases are complete and retained below as historical delivery context. The product has advanced from the three-card vertical slice to OpenCards Foundry:
+
+- generic serializable rulesets and deterministic scenarios;
+- 21 recursive effect operations, eight triggers, conditions, and combat keywords;
+- Ember Duel: Foundry Set with 40 cards and asymmetric 20-card starters;
+- Verdant AI, 400-match balance verification, and five playable lessons;
+- visual/JSON Studio, deck builder, format editor, persistence, and import/export;
+- responsive Play/Deck/Create/Rules surfaces with browser E2E;
+- Quick Sparks as a second game using core unchanged.
+
+npm run verify:mvp is the release gate.
 
 ## Development Principles
 
@@ -25,23 +33,15 @@ Phases -1 through 3.3 are shipped; phases 3.5, 4, 5, 6, 7, and 8 remain pending.
 - The effect DSL starts narrow and only grows when a real card needs a new operation.
 - Hidden information is a projection of canonical state, never a second state.
 - Every milestone adds executable checks, not only more structure.
-- The UI is a render of `engine.getView(playerId)`. It never invents legality.
+- The UI is a render of `viewMatch(handle)` and `legalCommands(handle)`. It never invents legality.
 
-## MVP Product Target
+## Shipped Product Target
 
-A local two-player browser demo for **Ember Duel**:
+OpenCards Studio is a reusable local foundation for deterministic digital card games. Ember Duel is the reference implementation, not a rule hard-coded into core.
 
-- 12-card starter decks;
-- deterministic setup, shuffle and draw;
-- hand, deck, discard, exile, battlefield and stack zones;
-- base/life total and energy resource;
-- unit and tactic cards;
-- legal command generation;
-- effect DSL for damage, resource gain, draw, discard, summon, heal, counters, stat mods and card movement;
-- deck/card validation;
-- bot-vs-bot match simulation;
-- replay export/import and verification;
-- basic card and deck editor.
+The shipped target includes 20-card decks, four-card openings, 20 base, progressive 1-10 energy, five unit slots, directed combat, the full Foundry mechanics catalog, replay, hidden information, AI, simulation, tutorials, and creator tools.
+
+See docs/foundry-guide.md for player and creator behavior. The phase sections below describe the historical path from the initial MVP and may mention the earlier 12-card slice.
 
 ## Phase -1: Foundation Locks
 
@@ -121,7 +121,7 @@ Exit criteria:
 
 - The Ember Duel starter data passes both schema and runtime validation.
 - Invalid fixtures fail with stable, documented issue codes.
-- Card-definition and decklist hashes are reproducible across runs.
+- Card definitions and decklists serialize reproducibly across runs.
 
 ## Phase 3: Ember Duel Vertical Slice
 
@@ -173,7 +173,7 @@ Goal: expose the deterministic engine in a local app a human can play.
 
 Stack is locked by ADR-0001. Architectural rules for the UI layer:
 
-- The UI reads only `engine.getView(playerId)` and `engine.getLegalCommands(playerId)`. Never raw state.
+- The UI reads only `viewMatch(handle)` and `legalCommands(handle)`. Never raw state.
 - Buttons and action affordances render directly from the legal commands list. If it is not in the list, there is no button.
 - Target selection is an explicit state machine: `idle → awaitingTarget(commandDraft) → confirming`. Not a boolean.
 - Animations trigger from events in the log, not from state diffs. This is what makes the replay reproduce animation.
@@ -205,12 +205,12 @@ Tasks:
 - Format editor (deck size, copy limit, opening hand, base total, starting energy).
 - Import/export JSON.
 - LocalStorage persistence for the MVP.
-- The play surface can run against locally edited definitions; the replay envelope records the edited definition hash.
+- The play surface can run against locally edited definitions; the replay envelope records edited definitions in `setupOpts.cards`.
 
 Exit criteria:
 
 - A user can change a card, validate the result and play the modified match without engine edits.
-- Replay envelopes encode the edited definition hash and verify correctly.
+- Replay envelopes carry edited definitions in `setupOpts.cards` and verify correctly.
 - A short "How to add a card" walkthrough lives in `docs/`.
 
 ## Phase 7: Simulator And QA Hardening

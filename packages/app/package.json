@@ -16,11 +16,13 @@
     "build": "tsc -b",
     "build:web": "vite build",
     "preview": "vite preview",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build:web && playwright test",
     "test": "node --experimental-strip-types ../../scripts/run-vitest-package.mjs"
   },
   "dependencies": {
+    "@opencards/ai": "*",
     "@opencards/core": "*",
+    "@opencards/ember-foundry": "*",
     "@opencards/effects": "*",
     "@opencards/schema": "*",
     "framer-motion": "^11.11.0"

@@ -1,8 +1,27 @@
+import { FOUNDRY_RULESET } from '@opencards/core';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_FORMAT, validateFormat } from './format.js';
 import { ISSUE_CODES } from './index.js';
 
+const validFormat = DEFAULT_FORMAT;
+
 describe('validateFormat', () => {
+  it('accepts a format carrying the Foundry ruleset', () => {
+    expect(validateFormat({ ...validFormat, ruleset: FOUNDRY_RULESET })).toEqual({
+      ok: true,
+      issues: [],
+    });
+  });
+
+  it('includes nested ruleset validation issues', () => {
+    const result = validateFormat({
+      ...validFormat,
+      ruleset: { ...FOUNDRY_RULESET, handLimit: 0 },
+    });
+    expect(result.issues.some((issue) => issue.code === ISSUE_CODES.INVALID_RULESET_LIMIT)).toBe(
+      true,
+    );
+  });
   it('DEFAULT_FORMAT validates ok:true', () => {
     const result = validateFormat(DEFAULT_FORMAT);
     expect(result.ok).toBe(true);

@@ -6,13 +6,11 @@ import type {
   CardKind,
   CardSpec,
   Command,
-  EngineEffect,
   PlayerId,
   PlayerView,
   ReplayEnvelopeV1,
   SetupOpts,
   StackItem,
-  TargetSelector,
   ValidationIssue,
   ViewerHandle,
 } from '@opencards/core';
@@ -26,11 +24,21 @@ import {
 } from '@opencards/core';
 import type { CardDefinition, GameFormat } from '@opencards/schema';
 import {
-  DEFAULT_FORMAT,
+  cardDefinitionToSpec,
   validateCardDefinition,
   validateDecklist,
   validateFormat,
 } from '@opencards/schema';
+import {
+  FOUNDRY_CARDS,
+  FOUNDRY_FORMAT,
+  FOUNDRY_TUTORIALS,
+  createFoundrySetup,
+  createFoundryTutorialSetup,
+  type FoundryTutorial,
+  type FoundryTutorialId,
+} from '@opencards/ember-foundry';
+import { chooseBotCommand } from '@opencards/ai';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
 import { DeckEditor } from './components/DeckEditor.js';
@@ -38,31 +46,9 @@ import { FormatEditor } from './components/FormatEditor.js';
 
 // ── Built-in card definitions ───────────────────────────────────────────────
 
-const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = {
-  'spark-adept': {
-    kind: 'spark-adept',
-    name: 'Spark Adept',
-    type: 'unit',
-    cost: { energy: 1 },
-    stats: { attack: 1, health: 2 },
-    effects: [],
-  },
-  'ember-guard': {
-    kind: 'ember-guard',
-    name: 'Ember Guard',
-    type: 'unit',
-    cost: { energy: 2 },
-    stats: { attack: 2, health: 3 },
-    effects: [],
-  },
-  'flare-strike': {
-    kind: 'flare-strike',
-    name: 'Flare Strike',
-    type: 'tactic',
-    cost: { energy: 1 },
-    effects: [{ op: 'dealDamage', amount: 2, target: 'enemyUnitOrBase' }],
-  },
-};
+const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = Object.fromEntries(
+  FOUNDRY_CARDS.map((card) => [card.kind, card]),
+);
 
 const CUSTOM_CARDS_KEY = 'opencards.customCards';
 const DECK_KEY = 'opencards.deck';
@@ -82,18 +68,18 @@ function loadCustomCards(): CardDefinition[] {
   }
 }
 
-/** Load validated format from localStorage, falling back to DEFAULT_FORMAT. */
+/** Load validated format from localStorage, falling back to Foundry. */
 function loadFormat(): GameFormat {
-  if (typeof window === 'undefined') return DEFAULT_FORMAT;
+  if (typeof window === 'undefined') return FOUNDRY_FORMAT;
   try {
     const raw = localStorage.getItem(FORMAT_KEY);
-    if (!raw) return DEFAULT_FORMAT;
+    if (!raw) return FOUNDRY_FORMAT;
     const parsed = JSON.parse(raw) as unknown;
     const result = validateFormat(parsed);
-    if (!result.ok) return DEFAULT_FORMAT;
+    if (!result.ok) return FOUNDRY_FORMAT;
     return parsed as GameFormat;
   } catch {
-    return DEFAULT_FORMAT;
+    return FOUNDRY_FORMAT;
   }
 }
 
@@ -195,6 +181,16 @@ type TargetingState =
   | { readonly status: 'awaitingTarget'; readonly draft: TargetCommandDraft }
   | { readonly status: 'confirming'; readonly command: TargetCommand };
 
+type GuidedTutorialStage =
+  | 'intro'
+  | 'draw'
+  | 'go-main'
+  | 'play-unit'
+  | 'go-combat'
+  | 'select-attacker'
+  | 'attack-base'
+  | 'victory';
+
 type CommandEvent =
   | { readonly type: 'cardDrawn'; readonly player: PlayerId }
   | { readonly type: 'phaseAdvanced'; readonly player: PlayerId }
@@ -206,6 +202,7 @@ type CommandEvent =
       readonly target: CardInstanceId | 'base';
     }
   | { readonly type: 'stackResolved'; readonly player: PlayerId }
+  | { readonly type: 'choiceMade'; readonly player: PlayerId; readonly option: number }
   | {
       readonly type: 'attackDeclared';
       readonly player: PlayerId;
@@ -244,6 +241,10 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     'idle',
   );
   const [useCustomCards, setUseCustomCards] = useState(false);
+  const [botEnabled, setBotEnabled] = useState(true);
+  const [tutorial, setTutorial] = useState<FoundryTutorial | null>(null);
+  const [guidedTutorial, setGuidedTutorial] = useState(false);
+  const [guidedIntroComplete, setGuidedIntroComplete] = useState(false);
   const [targeting, setTargeting] = useState<TargetingState>({ status: 'idle' });
   const exportedEnvelopeRef = useRef<HTMLTextAreaElement | null>(null);
   const replayArtifacts = useMemo<ReplayArtifacts | null>(
@@ -264,6 +265,17 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
   const viewerLegalCommands = useMemo<readonly Command[]>(
     () => (match ? legalCommands(match.handles[viewer]!) : []),
     [match, viewer],
+  );
+  const guidedStage = useMemo<GuidedTutorialStage | null>(
+    () =>
+      guidedTutorial && match
+        ? deriveGuidedTutorialStage(match, targeting, guidedIntroComplete)
+        : null,
+    [guidedIntroComplete, guidedTutorial, match, targeting],
+  );
+  const visibleLegalCommands = useMemo<readonly Command[]>(
+    () => filterCommandsForGuide(viewerLegalCommands, guidedStage, match),
+    [guidedStage, match, viewerLegalCommands],
   );
 
   function startNewGame(): void {
@@ -286,6 +298,31 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setCopyStatus('idle');
     setPasteStatus('idle');
     setTargeting({ status: 'idle' });
+    setTutorial(null);
+    setGuidedTutorial(false);
+    setGuidedIntroComplete(false);
+  }
+
+  function startTutorial(nextTutorial: FoundryTutorial): void {
+    const isGuided = nextTutorial.id === 'first-turn';
+    const setupOpts = createFoundryTutorialSetup(nextTutorial.id, players);
+    const started = startMatch(setupOpts);
+    setSeed(nextTutorial.seed);
+    setTutorial(nextTutorial);
+    setBotEnabled(!isGuided);
+    setGuidedTutorial(isGuided);
+    setGuidedIntroComplete(false);
+    setViewer(p1);
+    setMatch(project(started.handles, nextTutorial.seed, setupOpts, []));
+    setErrors({});
+    setTargeting({ status: 'idle' });
+  }
+
+  function startGuidedTutorial(): void {
+    const lesson = FOUNDRY_TUTORIALS.find((candidate) => candidate.id === 'first-turn');
+    if (lesson !== undefined) {
+      startTutorial(lesson);
+    }
   }
 
   function resetGame(): void {
@@ -298,10 +335,17 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setCopyStatus('idle');
     setPasteStatus('idle');
     setTargeting({ status: 'idle' });
+    setTutorial(null);
+    setGuidedTutorial(false);
+    setGuidedIntroComplete(false);
   }
 
   function applyPlayerCommand(command: Command): void {
     if (!match) {
+      return;
+    }
+
+    if (!isCommandAllowedByGuide(guidedStage, command, match)) {
       return;
     }
 
@@ -321,6 +365,19 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
         : { status: 'idle' },
     );
   }
+
+  useEffect(() => {
+    if (!match || !botEnabled || match.p1View.winner !== null || match.p1View.activePlayer !== p2) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const command = chooseBotCommand(match.handles[p2]!, match.p2View, 'control');
+      if (command !== null) {
+        applyPlayerCommand(command);
+      }
+    }, 240);
+    return () => window.clearTimeout(timer);
+  }, [botEnabled, match]);
 
   function drawCard(player: PlayerId): void {
     applyFirstLegalCommand(player, (command) => command.type === 'drawCard');
@@ -352,6 +409,10 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
 
   function onSelectAttacker(instanceId: CardInstanceId): void {
     if (!match) {
+      return;
+    }
+
+    if (guidedStage !== null && guidedStage !== 'select-attacker') {
       return;
     }
 
@@ -503,15 +564,15 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
 
   return (
     <MotionConfig reducedMotion="user">
-      <main className="min-h-screen bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-          <header className="flex flex-col gap-3 border-b border-[color:var(--oc-border)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <main className="oc-app-shell min-h-screen px-3 py-3 text-zinc-100 sm:px-5 lg:px-7">
+        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4">
+          <header className="oc-topbar flex flex-col gap-3 rounded border border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-normal">
-                OpenCards · Ember Duel demo
+                OpenCards <span className="text-orange-300">Foundry</span>
               </h1>
               <p className="mt-1 text-sm text-zinc-400">
-                Hot-seat facade demo using projected player views.
+                Build any card game. Play the reference set.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -578,14 +639,17 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
           {appView === 'create' ? <CardCreator /> : null}
 
           {appView === 'deck' ? (
-            <DeckEditor builtinCards={Object.values(BUILTIN_DEFINITIONS)} />
+            <DeckEditor
+              builtinCards={Object.values(BUILTIN_DEFINITIONS)}
+              defaultFormat={FOUNDRY_FORMAT}
+            />
           ) : null}
 
-          {appView === 'rules' ? <FormatEditor /> : null}
+          {appView === 'rules' ? <RulesView /> : null}
 
           {appView === 'play' ? (
             <>
-              <section className="flex flex-col gap-3 rounded border border-[color:var(--oc-border)] bg-zinc-900/70 p-4 sm:flex-row sm:items-end">
+              <section className="oc-command-bar flex flex-col gap-3 rounded border border-white/10 p-4 sm:flex-row sm:items-end">
                 <div className="flex flex-col gap-1">
                   <label className="flex max-w-36 flex-col gap-1 text-sm text-zinc-300">
                     Seed
@@ -615,13 +679,32 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     />
                     Use my cards
                   </label>
+                  <label className="flex items-center gap-2 text-xs text-zinc-300">
+                    <input
+                      checked={botEnabled}
+                      data-testid="bot-enabled"
+                      disabled={guidedTutorial}
+                      type="checkbox"
+                      onChange={(event) => setBotEnabled(event.currentTarget.checked)}
+                    />
+                    Jugar contra la IA Verdant
+                  </label>
                 </div>
                 <button
+                  className="rounded border border-emerald-300/60 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/20"
+                  data-testid="start-guided-tutorial"
+                  type="button"
+                  onClick={startGuidedTutorial}
+                >
+                  Tutorial paso a paso
+                </button>
+                <button
                   className="rounded bg-[color:var(--oc-accent)] px-4 py-2 text-sm font-semibold text-zinc-950 hover:brightness-110"
+                  aria-label="New Game"
                   type="button"
                   onClick={startNewGame}
                 >
-                  New Game
+                  Nueva partida
                 </button>
                 <button
                   className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
@@ -697,27 +780,40 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
 
               <section>
                 {match ? (
-                  <div className="flex flex-col gap-3">
-                    <div
-                      className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
-                      data-testid="perspective-toggle"
-                    >
-                      {players.map((player) => (
-                        <button
-                          className={`rounded px-3 py-2 text-sm font-semibold ${
-                            viewer === player
-                              ? 'bg-[color:var(--oc-accent)] text-zinc-950'
-                              : 'text-zinc-300 hover:bg-zinc-800'
-                          }`}
-                          data-testid={`view-as-${player}`}
-                          key={player}
-                          type="button"
-                          onClick={() => selectViewer(player)}
-                        >
-                          View as {player}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="flex flex-col gap-3" data-guide-stage={guidedStage ?? undefined}>
+                    {guidedStage ? (
+                      <GuidedTutorialPanel
+                        stage={guidedStage}
+                        onBegin={() => setGuidedIntroComplete(true)}
+                        onExit={resetGame}
+                        onPlayMatch={() => {
+                          setBotEnabled(true);
+                          startNewGame();
+                        }}
+                      />
+                    ) : null}
+                    {!guidedTutorial ? (
+                      <div
+                        className="inline-flex w-fit rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1"
+                        data-testid="perspective-toggle"
+                      >
+                        {players.map((player) => (
+                          <button
+                            className={`rounded px-3 py-2 text-sm font-semibold ${
+                              viewer === player
+                                ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                                : 'text-zinc-300 hover:bg-zinc-800'
+                            }`}
+                            data-testid={`view-as-${player}`}
+                            key={player}
+                            type="button"
+                            onClick={() => selectViewer(player)}
+                          >
+                            View as {player}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <BoardView
                       activePlayer={match.p1View.activePlayer}
                       cardRegistry={buildCardRegistry(
@@ -728,7 +824,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                       eventLog={replayArtifacts?.events ?? []}
                       hashMatch={hashMatch}
                       issues={errors[viewer] ?? []}
-                      legal={viewerLegalCommands}
+                      legal={visibleLegalCommands}
                       targeting={targeting}
                       view={viewer === p1 ? match.p1View : match.p2View}
                       viewer={viewer}
@@ -739,33 +835,480 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     />
                   </div>
                 ) : (
-                  <div className="rounded border border-[color:var(--oc-border)] bg-zinc-900 p-5 text-zinc-400">
-                    Start a new game to create both hot-seat player views.
+                  <div className="oc-empty-board flex min-h-[460px] items-end rounded border border-white/15 p-6 sm:p-9">
+                    <div className="max-w-xl">
+                      <p className="text-xs font-semibold uppercase text-emerald-300">
+                        Ember versus Verdant
+                      </p>
+                      <h2 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">
+                        Aprende jugando. Luego gana.
+                      </h2>
+                      <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
+                        Empieza con un tutorial guiado de un turno completo o entra directamente en
+                        una partida contra la IA Verdant.
+                      </p>
+                      <div className="mt-5 flex flex-wrap gap-3">
+                        <button
+                          className="rounded bg-emerald-300 px-5 py-3 text-sm font-semibold text-emerald-950 hover:bg-emerald-200"
+                          data-testid="hero-guided-tutorial"
+                          type="button"
+                          onClick={startGuidedTutorial}
+                        >
+                          Aprender paso a paso
+                        </button>
+                        <button
+                          className="rounded bg-orange-500 px-5 py-3 text-sm font-semibold text-black hover:bg-orange-400"
+                          data-testid="start-duel"
+                          type="button"
+                          onClick={startNewGame}
+                        >
+                          Partida libre
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </section>
 
-              <MatchLog commands={match?.commands ?? []} limit={logLimit} />
-              <EventLog events={replayArtifacts?.events ?? []} />
-
-              <ReplayPanel
-                replayInput={replayInput}
-                replay={replay}
-                pasteValidation={pasteValidation}
-                pasteStatus={pasteStatus}
-                onReplayInput={(value) => {
-                  setReplayInput(value);
-                  setReplay({ status: 'idle' });
-                  setPasteValidation(null);
-                }}
-                onVerify={verifyReplay}
-                onPaste={() => void pasteReplayFromClipboard()}
+              <TutorialPicker
+                active={tutorial}
+                complete={tutorial === null ? false : isTutorialComplete(tutorial.id, match)}
+                onStart={startTutorial}
               />
+
+              {match === null ? (
+                <div className="sr-only">
+                  <ReplayPanel
+                    replayInput={replayInput}
+                    replay={replay}
+                    pasteValidation={pasteValidation}
+                    pasteStatus={pasteStatus}
+                    onReplayInput={(value) => {
+                      setReplayInput(value);
+                      setReplay({ status: 'idle' });
+                      setPasteValidation(null);
+                    }}
+                    onVerify={verifyReplay}
+                    onPaste={() => void pasteReplayFromClipboard()}
+                  />
+                </div>
+              ) : null}
+
+              {match ? (
+                <details className="rounded border border-white/10 bg-zinc-900/70 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-zinc-300">
+                    Match data, logs, and replay
+                  </summary>
+                  <div className="mt-4 grid gap-4">
+                    <MatchLog commands={match.commands} limit={logLimit} />
+                    <EventLog events={replayArtifacts?.events ?? []} />
+                    <ReplayPanel
+                      replayInput={replayInput}
+                      replay={replay}
+                      pasteValidation={pasteValidation}
+                      pasteStatus={pasteStatus}
+                      onReplayInput={(value) => {
+                        setReplayInput(value);
+                        setReplay({ status: 'idle' });
+                        setPasteValidation(null);
+                      }}
+                      onVerify={verifyReplay}
+                      onPaste={() => void pasteReplayFromClipboard()}
+                    />
+                  </div>
+                </details>
+              ) : null}
             </>
           ) : null}
         </div>
       </main>
     </MotionConfig>
+  );
+}
+
+const GUIDED_TUTORIAL_CONTENT: Record<
+  GuidedTutorialStage,
+  {
+    readonly step: number;
+    readonly eyebrow: string;
+    readonly title: string;
+    readonly body: string;
+    readonly action: string;
+  }
+> = {
+  intro: {
+    step: 0,
+    eyebrow: 'Antes de mover',
+    title: 'Tu objetivo: dejar la base rival en 0',
+    body: 'En una partida normal ambas bases empiezan con 20 PV. Juegas cartas pagando energia, colocas unidades y atacas hasta reducir la base enemiga a cero. En esta practica la base rival tiene 1 PV para que completes el ciclo entero en un turno.',
+    action: 'Primero veras como robar, jugar una unidad y atacar.',
+  },
+  draw: {
+    step: 1,
+    eyebrow: 'Paso 1 de 6 - Inicio',
+    title: 'Roba una carta',
+    body: 'Cada turno comienza en Inicio. Puedes robar una vez; la carta pasa de tu mazo a tu mano sin que el rival vea cual es.',
+    action: 'Pulsa el boton resaltado "Robar carta".',
+  },
+  'go-main': {
+    step: 2,
+    eyebrow: 'Paso 2 de 6 - Fases',
+    title: 'Avanza a la fase principal',
+    body: 'El turno se divide en Inicio, Principal, Combate y Fin. En Principal puedes gastar energia para jugar cartas.',
+    action: 'Pulsa "Siguiente fase".',
+  },
+  'play-unit': {
+    step: 3,
+    eyebrow: 'Paso 3 de 6 - Energia',
+    title: 'Juega Cinder Initiate',
+    body: 'El numero de la esquina de una carta es su coste. Tienes 1 de energia y Cinder Initiate cuesta 1, asi que puedes jugarla. La energia se rellena y aumenta al comenzar tus siguientes turnos.',
+    action: 'Pulsa "Jugar" debajo de la carta resaltada.',
+  },
+  'go-combat': {
+    step: 4,
+    eyebrow: 'Paso 4 de 6 - Combate',
+    title: 'Avanza a Combate',
+    body: 'Las unidades normales esperan un turno antes de atacar. Cinder Initiate tiene Haste, por eso puede atacar inmediatamente.',
+    action: 'Pulsa otra vez "Siguiente fase".',
+  },
+  'select-attacker': {
+    step: 5,
+    eyebrow: 'Paso 5 de 6 - Atacante',
+    title: 'Elige la unidad que atacara',
+    body: 'Una unidad preparada puede atacar una vez. Primero eliges atacante y despues objetivo. Si hay una unidad con Guard, debes atacarla antes que a la base.',
+    action: 'Pulsa "Atacar" en Cinder Initiate.',
+  },
+  'attack-base': {
+    step: 6,
+    eyebrow: 'Paso 6 de 6 - Objetivo',
+    title: 'Ataca la base rival',
+    body: 'El rival no tiene unidades con Guard, asi que su base es un objetivo legal. Tu unidad inflige su ataque a la base.',
+    action: 'Pulsa "Atacar base". Al llegar a 0 PV, ganas.',
+  },
+  victory: {
+    step: 6,
+    eyebrow: 'Tutorial completado',
+    title: 'Has ganado tu primera partida',
+    body: 'La base Verdant ha llegado a 0. En una partida normal repetiras este ciclo durante varios turnos: robar, jugar cartas, combatir y terminar turno mientras la IA hace lo mismo.',
+    action: 'Ya conoces el objetivo, las cuatro fases, la energia, las unidades y el combate.',
+  },
+};
+
+function GuidedTutorialPanel({
+  stage,
+  onBegin,
+  onExit,
+  onPlayMatch,
+}: {
+  readonly stage: GuidedTutorialStage;
+  readonly onBegin: () => void;
+  readonly onExit: () => void;
+  readonly onPlayMatch: () => void;
+}): JSX.Element {
+  const content = GUIDED_TUTORIAL_CONTENT[stage];
+  const progress = Math.round((content.step / 6) * 100);
+
+  return (
+    <section
+      aria-live="polite"
+      className="oc-guide-panel sticky top-3 z-40 overflow-hidden rounded border border-emerald-300/40 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur-xl"
+      data-testid="guided-tutorial"
+    >
+      <div className="h-1 bg-zinc-800">
+        <div
+          className="h-full bg-emerald-300 transition-all duration-300"
+          data-testid="guided-progress"
+          style={{ width: `${String(progress)}%` }}
+        />
+      </div>
+      <div className="grid gap-4 p-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <p className="text-xs font-bold uppercase text-emerald-300" data-testid="guided-stage">
+            {content.eyebrow}
+          </p>
+          <h2 className="mt-1 text-xl font-semibold text-white">{content.title}</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-300">{content.body}</p>
+          <p className="mt-2 text-sm font-semibold text-orange-200">{content.action}</p>
+          <div className="mt-3 flex flex-wrap gap-1 text-xs text-zinc-400">
+            {['Inicio', 'Principal', 'Combate', 'Fin'].map((phase) => (
+              <span className="rounded border border-white/10 bg-white/5 px-2 py-1" key={phase}>
+                {phase}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          {stage === 'intro' ? (
+            <button
+              className="rounded bg-emerald-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-emerald-200"
+              data-testid="guided-begin"
+              type="button"
+              onClick={onBegin}
+            >
+              Empezar tutorial
+            </button>
+          ) : null}
+          {stage === 'victory' ? (
+            <button
+              className="rounded bg-orange-500 px-4 py-2 text-sm font-bold text-black hover:bg-orange-400"
+              data-testid="guided-play-match"
+              type="button"
+              onClick={onPlayMatch}
+            >
+              Jugar contra la IA
+            </button>
+          ) : null}
+          <button
+            className="rounded border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-300 hover:bg-white/5"
+            data-testid="guided-exit"
+            type="button"
+            onClick={onExit}
+          >
+            Salir del tutorial
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function deriveGuidedTutorialStage(
+  match: MatchState,
+  targeting: TargetingState,
+  introComplete: boolean,
+): GuidedTutorialStage {
+  if (!introComplete) return 'intro';
+  if (match.p1View.winner === p1) return 'victory';
+  if (targeting.status === 'awaitingTarget' && targeting.draft.type === 'attack') {
+    return 'attack-base';
+  }
+  if (match.p1View.phase === 'combat') return 'select-attacker';
+  if (match.commands.some((command) => command.type === 'playCard')) return 'go-combat';
+  if (match.p1View.phase === 'main') return 'play-unit';
+  if (match.commands.some((command) => command.type === 'drawCard')) return 'go-main';
+  return 'draw';
+}
+
+function filterCommandsForGuide(
+  legal: readonly Command[],
+  stage: GuidedTutorialStage | null,
+  match: MatchState | null,
+): readonly Command[] {
+  if (stage === null) return legal;
+  switch (stage) {
+    case 'draw':
+      return legal.filter((command) => command.type === 'drawCard');
+    case 'go-main':
+    case 'go-combat':
+      return legal.filter((command) => command.type === 'endPhase');
+    case 'play-unit': {
+      const cinder = match?.p1View.viewer.hand.find((card) => card.kind === 'cinder-initiate');
+      return legal.filter(
+        (command) => command.type === 'playCard' && command.instance === cinder?.id,
+      );
+    }
+    case 'select-attacker':
+      return legal.filter((command) => command.type === 'attack');
+    case 'attack-base':
+      return legal.filter((command) => command.type === 'attack' && command.target === 'base');
+    case 'intro':
+    case 'victory':
+      return [];
+  }
+}
+
+function isCommandAllowedByGuide(
+  stage: GuidedTutorialStage | null,
+  command: Command,
+  match: MatchState,
+): boolean {
+  return hasLegalCommand(filterCommandsForGuide([command], stage, match), command);
+}
+
+function isTutorialComplete(id: FoundryTutorialId, match: MatchState | null): boolean {
+  if (match === null) return false;
+  switch (id) {
+    case 'first-turn':
+      return match.p1View.winner === p1;
+    case 'combat':
+      return match.commands.some(
+        (command) => command.type === 'attack' && command.target === 'base',
+      );
+    case 'guard-rush':
+      return match.commands.some(
+        (command) => command.type === 'attack' && command.target !== 'base',
+      );
+    case 'shield-poison':
+      return !match.p1View.opponents[p2]?.battlefield.some(
+        (unit) => unit.kind === 'barkshield-guardian',
+      );
+    case 'tactics':
+      return match.commands.some((command) => command.type === 'resolveStack');
+  }
+}
+
+function TutorialPicker({
+  active,
+  complete,
+  onStart,
+}: {
+  readonly active: FoundryTutorial | null;
+  readonly complete: boolean;
+  readonly onStart: (tutorial: FoundryTutorial) => void;
+}): JSX.Element {
+  return (
+    <section
+      className="rounded border border-emerald-400/20 bg-emerald-950/30 p-4"
+      data-testid="tutorial-picker"
+    >
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-emerald-300">Academia Foundry</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-semibold">Aprende antes de competir</h2>
+            {complete ? (
+              <span
+                className="rounded bg-emerald-300 px-2 py-1 text-xs font-bold text-emerald-950"
+                data-testid="tutorial-complete"
+              >
+                Leccion completada
+              </span>
+            ) : null}
+          </div>
+          {active ? (
+            <p className="mt-1 text-sm text-emerald-100" data-testid="tutorial-objective">
+              {active.objective} {active.focus}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-zinc-400">
+              Empieza por el tutorial completo y practica despues cada mecanica por separado.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {FOUNDRY_TUTORIALS.map((item) => (
+          <button
+            className={`min-h-14 rounded border px-3 py-2 text-left text-sm font-semibold transition ${
+              active?.id === item.id
+                ? 'border-emerald-300 bg-emerald-400/20 text-white'
+                : 'border-white/10 bg-black/20 text-zinc-300 hover:border-emerald-400/50 hover:bg-emerald-400/10'
+            }`}
+            data-testid={`tutorial-${item.id}`}
+            key={item.id}
+            type="button"
+            onClick={() => onStart(item)}
+          >
+            {item.title}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const KEYWORD_RULES = [
+  ['Guard', 'While visible, this unit must be attacked before its base or non-Guard allies.'],
+  ['Rush', 'May attack units on the turn it enters play, but not the enemy base.'],
+  ['Charge', 'May attack any legal target on the turn it enters play.'],
+  ['Haste', 'Enters ready and may attack immediately.'],
+  ['Shield', 'Prevents the next positive damage, then disappears.'],
+  ['Lifesteal', 'Combat damage dealt restores that much life to its controller.'],
+  ['Poisonous', 'Any combat damage dealt to a unit destroys that unit.'],
+  ['Stealth', 'Cannot be attacked or targeted by enemies until it attacks.'],
+] as const;
+
+const ADVANCED_RULES = [
+  [
+    'Triggers',
+    'Abilities can react to play, death, attack, turn start or end, enemy actions, and friendly deaths.',
+  ],
+  [
+    'Control',
+    'Freeze and stun delay units; silence removes abilities, statuses, modifiers, counters, and keywords.',
+  ],
+  [
+    'Modification',
+    'Permanent or temporary buffs and debuffs can change stats, add keywords, or place named counters.',
+  ],
+  [
+    'Attachments',
+    'Equipment and enchantments stay on a unit and contribute their own attack or health modifiers.',
+  ],
+  [
+    'Secrets',
+    'Face-down traps expose only a count to the opponent, then reveal and resolve on their trigger.',
+  ],
+  [
+    'Zones',
+    'Cards can move through deck, hand, battlefield, stack, discard, exile, and resurrection flows.',
+  ],
+  [
+    'Area effects',
+    'Effects can hit every unit, adjacent units, or a deterministic random legal target.',
+  ],
+  [
+    'Choices',
+    'Choose-one effects pause resolution until the controlling player selects a legal option.',
+  ],
+  [
+    'Fatigue',
+    'Drawing from an empty deck deals increasing damage instead of silently ending the game.',
+  ],
+] as const;
+function RulesView(): JSX.Element {
+  return (
+    <div className="flex flex-col gap-6" data-testid="rules-view">
+      <section className="grid gap-6 border-b border-white/10 pb-6 lg:grid-cols-[1.1fr_1fr]">
+        <div>
+          <p className="text-xs font-semibold uppercase text-orange-300">Ember Duel: Foundry Set</p>
+          <h2 className="mt-2 text-3xl font-semibold">Rules of the duel</h2>
+          <p className="mt-3 max-w-2xl text-zinc-300">
+            Reduce the opposing base from 20 to 0. Build a 20-card deck, draw four cards, and deploy
+            units or tactics using energy that grows from 1 to 10.
+          </p>
+          <ol className="mt-5 grid gap-3 text-sm text-zinc-300">
+            <li>
+              <strong className="text-white">1. Start:</strong> draw once. Empty decks deal
+              increasing fatigue damage.
+            </li>
+            <li>
+              <strong className="text-white">2. Main:</strong> play cards. Each side can control at
+              most five units.
+            </li>
+            <li>
+              <strong className="text-white">3. Combat:</strong> ready units attack a unit or the
+              enemy base. Unit damage is simultaneous.
+            </li>
+            <li>
+              <strong className="text-white">4. End:</strong> temporary modifiers expire and the
+              opponent begins with refilled energy.
+            </li>
+          </ol>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {KEYWORD_RULES.map(([name, description]) => (
+            <article className="rounded border border-white/10 bg-white/5 p-3" key={name}>
+              <h3 className="font-semibold text-emerald-200">{name}</h3>
+              <p className="mt-1 text-sm leading-5 text-zinc-400">{description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="border-b border-white/10 pb-6">
+        <p className="text-xs font-semibold uppercase text-emerald-300">Advanced vocabulary</p>
+        <h3 className="mt-2 text-xl font-semibold">Composable mechanics</h3>
+        <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+          {ADVANCED_RULES.map(([name, description]) => (
+            <div className="border-l-2 border-emerald-400/40 pl-3" key={name}>
+              <h4 className="font-semibold text-zinc-100">{name}</h4>
+              <p className="mt-1 text-sm leading-5 text-zinc-400">{description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+      <FormatEditor defaultFormat={FOUNDRY_FORMAT} />
+    </div>
   );
 }
 
@@ -883,6 +1426,10 @@ function StackPanel({
     (command): command is ResolveStackCommand => command.type === 'resolveStack',
   );
   const chooseBaseCommand = targetCommandForTarget(legal, targeting, stack, 'base', 'chooseTarget');
+  const choiceCommands = legal.filter(
+    (command): command is Extract<Command, { readonly type: 'makeChoice' }> =>
+      command.type === 'makeChoice',
+  );
 
   return (
     <section
@@ -914,6 +1461,27 @@ function StackPanel({
           ) : null}
         </div>
       </div>
+      {choiceCommands.length > 0 ? (
+        <div
+          className="mb-3 rounded border border-emerald-400/30 bg-emerald-500/10 p-3"
+          data-testid="pending-choice"
+        >
+          <p className="mb-2 text-xs font-semibold uppercase text-emerald-200">Choose one</p>
+          <div className="flex flex-wrap gap-2">
+            {choiceCommands.map((command) => (
+              <button
+                className="rounded border border-emerald-300/40 bg-emerald-400/15 px-3 py-2 text-sm font-semibold text-emerald-50 hover:bg-emerald-400/25"
+                data-testid={`choice-option-${String(command.option)}`}
+                key={command.option}
+                type="button"
+                onClick={() => onCommand(command)}
+              >
+                Option {command.option + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {stack.length === 0 ? (
         <p className="text-xs text-zinc-500">Stack empty</p>
       ) : (
@@ -973,7 +1541,7 @@ function BoardView({
 
   return (
     <div
-      className="overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-950 shadow-2xl shadow-black/30"
+      className="oc-game-board overflow-hidden rounded border border-white/15 shadow-2xl shadow-black/50"
       data-testid="board"
     >
       {view.winner ? (
@@ -985,7 +1553,7 @@ function BoardView({
         </div>
       ) : null}
       <BoardArea
-        className="rounded-b-none border-x-0 border-t-0 bg-gradient-to-b from-zinc-900 to-zinc-950"
+        className="rounded-b-none border-x-0 border-t-0 bg-black/25"
         isActive={opponent === activePlayer}
         testId="opponent-area"
       >
@@ -1003,12 +1571,13 @@ function BoardView({
               <BaseBadge base={opponentView.base} energy={opponentView.energy} player={opponent} />
               {attackBaseCommand ? (
                 <button
+                  aria-label="Attack base"
                   className="rounded border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/25"
                   data-testid="attack-target-base"
                   type="button"
                   onClick={() => onTargetCommand(attackBaseCommand)}
                 >
-                  Attack base
+                  Atacar base
                 </button>
               ) : null}
               {isAwaitingAttackTarget(targeting) ? (
@@ -1034,7 +1603,7 @@ function BoardView({
       </BoardArea>
 
       <div
-        className="relative border-y border-[color:var(--oc-border)] bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.14),rgba(24,24,27,0.82)_42%,rgba(9,9,11,0.94))] px-4 py-5"
+        className="relative border-y border-white/10 bg-black/20 px-4 py-3 backdrop-blur-[2px]"
         data-testid="board-center"
       >
         <div className="absolute inset-x-6 top-1/2 h-px bg-gradient-to-r from-transparent via-orange-300/35 to-transparent" />
@@ -1160,7 +1729,7 @@ function PlayerArea({
 
   return (
     <BoardArea
-      className="rounded-t-none border-x-0 border-b-0 bg-gradient-to-b from-zinc-950 to-zinc-900"
+      className="rounded-t-none border-x-0 border-b-0 bg-black/25"
       isActive={isActive}
       testId="player-area"
     >
@@ -1180,18 +1749,21 @@ function PlayerArea({
             <span className="text-xs text-zinc-500">Waiting for {activePlayer}</span>
           ) : null}
           <button
+            aria-label="Draw card"
             className={`rounded border border-[color:var(--oc-accent)] bg-[color:var(--oc-accent-soft)] px-3 py-2 text-sm text-orange-100 hover:bg-orange-500/25 ${
               drawCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
+            data-testid="draw-card"
             disabled={!drawCommand}
             type="button"
             onClick={() => {
               if (drawCommand) onCommand(drawCommand);
             }}
           >
-            Draw card
+            Robar carta
           </button>
           <button
+            aria-label="End phase"
             className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
               endPhaseCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
@@ -1202,9 +1774,10 @@ function PlayerArea({
               if (endPhaseCommand) onCommand(endPhaseCommand);
             }}
           >
-            End phase
+            Siguiente fase
           </button>
           <button
+            aria-label="End turn"
             className={`rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 ${
               endTurnCommand ? '' : 'cursor-not-allowed opacity-50'
             }`}
@@ -1215,7 +1788,7 @@ function PlayerArea({
               if (endTurnCommand) onCommand(endTurnCommand);
             }}
           >
-            End turn
+            Terminar turno
           </button>
         </div>
       </div>
@@ -1457,6 +2030,7 @@ function FannedHand(props: FannedHandProps): JSX.Element {
           return (
             <motion.li
               className={`-mx-3 list-none${isPlayDisabled ? ' opacity-50' : ''}`}
+              data-card-kind={card.kind}
               data-testid={`own-card-${props.owner}`}
               key={card.id}
               layout
@@ -1468,6 +2042,8 @@ function FannedHand(props: FannedHandProps): JSX.Element {
             >
               <Card kind={card.kind} name={def?.name} type={def?.type} cost={def?.cost.energy} />
               <button
+                aria-label="Play"
+                data-card-kind={card.kind}
                 data-testid={`play-card-${card.id}`}
                 disabled={isPlayDisabled}
                 type="button"
@@ -1475,7 +2051,7 @@ function FannedHand(props: FannedHandProps): JSX.Element {
                   if (playCommand) props.onCommand(playCommand);
                 }}
               >
-                Play
+                Jugar
               </button>
             </motion.li>
           );
@@ -1576,6 +2152,7 @@ function BattlefieldStrip({
                 </div>
                 {stripMode.type === 'attacker' ? (
                   <button
+                    aria-label="Attack"
                     className={`mt-2 w-full rounded border border-[color:var(--oc-accent)] px-2 py-1 text-xs font-semibold ${
                       attackCommand
                         ? 'bg-[color:var(--oc-accent-soft)] text-orange-100 hover:bg-orange-500/25'
@@ -1586,7 +2163,7 @@ function BattlefieldStrip({
                     type="button"
                     onClick={() => stripMode.onSelectAttacker(unit.id)}
                   >
-                    Attack
+                    Atacar
                   </button>
                 ) : null}
                 {stripMode.type === 'target' && targetCommand ? (
@@ -1814,6 +2391,8 @@ function isSameCommand(left: Command, right: Command): boolean {
     case 'endTurn':
     case 'resolveStack':
       return true;
+    case 'makeChoice':
+      return right.type === 'makeChoice' && left.option === right.option;
     case 'playCard':
       return right.type === 'playCard' && left.instance === right.instance;
     case 'chooseTarget':
@@ -1895,6 +2474,8 @@ function commandToEvent(command: Command): CommandEvent {
       return { type: 'targetChosen', player: command.player, target: command.target };
     case 'resolveStack':
       return { type: 'stackResolved', player: command.player };
+    case 'makeChoice':
+      return { type: 'choiceMade', player: command.player, option: command.option };
     case 'attack':
       return { type: 'attackDeclared', player: command.player, target: command.target };
   }
@@ -1916,6 +2497,8 @@ function formatEvent(event: CommandEvent): string {
       return `${event.player} chose ${event.target}`;
     case 'stackResolved':
       return `${event.player} resolved stack`;
+    case 'choiceMade':
+      return `${event.player} chose option ${String(event.option + 1)}`;
   }
 }
 
@@ -1927,6 +2510,14 @@ function buildSetupFromFormat(
   },
 ): SetupOpts {
   const format = loadFormat();
+  if (
+    options.decklist === null &&
+    options.customCards === null &&
+    format.name === FOUNDRY_FORMAT.name &&
+    format.deckSize === FOUNDRY_FORMAT.deckSize
+  ) {
+    return createFoundrySetup(seed, players);
+  }
   // Custom cards drive the playable kinds; fall back to the built-in set so
   // cardKinds is never empty (the engine cycles the deck over these kinds).
   const activeDefs =
@@ -1936,15 +2527,7 @@ function buildSetupFromFormat(
         ? options.customCards
         : Object.values(BUILTIN_DEFINITIONS);
   const kinds = activeDefs.map((card) => card.kind);
-  const cards: CardSpec[] = activeDefs.map((def) => {
-    const base: CardSpec = { kind: def.kind, type: def.type, cost: def.cost.energy };
-    const withAttack =
-      def.stats?.attack !== undefined ? { ...base, attack: def.stats.attack } : base;
-    const withHealth =
-      def.stats?.health !== undefined ? { ...withAttack, health: def.stats.health } : withAttack;
-    const effects = mapDefinitionEffects(def.effects);
-    return effects.length > 0 ? { ...withHealth, effects } : withHealth;
-  });
+  const cards: CardSpec[] = activeDefs.map(cardDefinitionToSpec);
   const setup: SetupOpts = {
     seed,
     players,
@@ -1954,56 +2537,9 @@ function buildSetupFromFormat(
     startingEnergy: format.startingEnergy,
     cardKinds: kinds,
     cards,
+    ...(format.ruleset === undefined ? {} : { ruleset: format.ruleset }),
   };
   return options.decklist !== null ? { ...setup, decklist: options.decklist } : setup;
-}
-
-const ENGINE_EFFECT_OPS = new Set<EngineEffect['op']>([
-  'gainResource',
-  'drawCards',
-  'dealDamage',
-  'heal',
-  'summonUnit',
-  'moveCard',
-  'discardCards',
-  'addCounter',
-  'modifyStatUntilEndOfTurn',
-]);
-
-function mapDefinitionEffects(
-  effects: readonly CardDefinition['effects'][number][] | undefined,
-): EngineEffect[] {
-  return (effects ?? []).flatMap((effect) => {
-    if (!ENGINE_EFFECT_OPS.has(effect.op as EngineEffect['op'])) {
-      return [];
-    }
-
-    const target = mapDefinitionTarget(effect.target);
-    const mapped: EngineEffect = {
-      op: effect.op as EngineEffect['op'],
-      ...(effect.amount !== undefined ? { amount: effect.amount } : {}),
-      ...(target !== undefined ? { target } : {}),
-    };
-    return [mapped];
-  });
-}
-
-function mapDefinitionTarget(target: string | undefined): TargetSelector | undefined {
-  switch (target) {
-    case undefined:
-      return undefined;
-    case 'self':
-    case 'ownUnit':
-    case 'enemyUnit':
-    case 'enemyBase':
-    case 'enemyUnitOrBase':
-    case 'anyUnit':
-      return target;
-    case 'ownBase':
-      return 'self';
-    default:
-      return undefined;
-  }
 }
 
 function project(

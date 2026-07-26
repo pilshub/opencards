@@ -14,6 +14,15 @@ export function getLegalCommands(state: State, player: PlayerId): Command[] {
     return [];
   }
 
+  if (state.pendingChoice !== undefined) {
+    if (state.pendingChoice.player !== player) return [];
+    return state.pendingChoice.options.map((_, option) => ({
+      type: 'makeChoice' as const,
+      player,
+      option,
+    }));
+  }
+
   const candidates: Command[] = [
     { type: 'drawCard', player },
     { type: 'endPhase', player },
@@ -91,7 +100,12 @@ function requiredTargetSelectors(item: StackItem): readonly TargetSelector[] {
   const selectors: TargetSelector[] = [];
 
   for (const effect of item.effects) {
-    if (effect.target === undefined || effect.target === 'self') {
+    if (
+      effect.target === undefined ||
+      effect.target === 'self' ||
+      effect.op === 'damageAll' ||
+      effect.op === 'randomDamage'
+    ) {
       continue;
     }
 

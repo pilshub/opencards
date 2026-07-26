@@ -1,4 +1,5 @@
 import type { MaskedCardView, OpponentPlayerView, PlayerView, PlayerId, State } from './types.js';
+import { CLASSIC_RULESET } from './ruleset.js';
 
 /** Project canonical state into the hidden-information-safe view for one player. */
 export function getView(state: State, viewer: PlayerId): PlayerView {
@@ -24,7 +25,10 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       battlefield: player.battlefield.map((u) => ({ ...u })),
       base: player.base,
       energy: player.energy,
+      maxEnergy: player.maxEnergy ?? player.energy,
       drawnThisTurn: player.drawnThisTurn,
+      fatigueCount: player.fatigueCount ?? 0,
+      ...(player.secrets === undefined ? {} : { secretCount: player.secrets.length }),
     };
   }
 
@@ -38,7 +42,10 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       battlefield: viewerState.battlefield.map((u) => ({ ...u })),
       base: viewerState.base,
       energy: viewerState.energy,
+      maxEnergy: viewerState.maxEnergy ?? viewerState.energy,
       drawnThisTurn: viewerState.drawnThisTurn,
+      fatigueCount: viewerState.fatigueCount ?? 0,
+      ...(viewerState.secrets === undefined ? {} : { secretCount: viewerState.secrets.length }),
     },
     opponents,
     activePlayer: state.activePlayer,
@@ -49,5 +56,15 @@ export function getView(state: State, viewer: PlayerId): PlayerView {
       ...item,
       effects: item.effects.map((effect) => ({ ...effect })),
     })),
+    ruleset: state.ruleset ?? CLASSIC_RULESET,
+    ...(state.pendingChoice === undefined
+      ? {}
+      : {
+          pendingChoice: {
+            player: state.pendingChoice.player,
+            source: state.pendingChoice.source,
+            options: state.pendingChoice.options.length,
+          },
+        }),
   };
 }

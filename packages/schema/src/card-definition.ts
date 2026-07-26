@@ -3,9 +3,16 @@
  * Phase 2 implementation. See docs/adr/0002-effect-dsl-v1.md.
  */
 
-import { isV1Operation } from '@opencards/effects';
+import { isAbilityTrigger, isBuiltinKeyword, isV1Operation } from '@opencards/effects';
 import { ISSUE_CODES } from './index.js';
 import type { IssueCode } from './index.js';
+import type {
+  CardSpec,
+  EngineAbility,
+  EngineCondition,
+  EngineEffect,
+  TargetSelector as EngineTargetSelector,
+} from '@opencards/core';
 
 /** Discriminated union of supported card types. */
 export type CardType = 'unit' | 'tactic';
@@ -26,6 +33,35 @@ export interface EffectDef {
   readonly op: string;
   readonly amount?: number;
   readonly target?: string;
+  readonly kind?: string;
+  readonly counter?: string;
+  readonly stat?: 'attack' | 'health';
+  readonly from?: string;
+  readonly to?: string;
+  readonly keyword?: string;
+  readonly status?: 'frozen' | 'stunned';
+  readonly duration?: number;
+  readonly attachmentType?: 'equipment' | 'enchantment';
+  readonly attack?: number;
+  readonly health?: number;
+  readonly trigger?: string;
+  readonly effects?: readonly EffectDef[];
+  readonly options?: readonly (readonly EffectDef[])[];
+}
+
+export interface ConditionDef {
+  readonly subject: 'source' | 'controller' | 'opponent';
+  readonly metric: 'base' | 'energy' | 'damage' | 'units' | 'handSize' | 'counter';
+  readonly operator: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte';
+  readonly value: number;
+  readonly counter?: string;
+}
+
+/** Declarative triggered ability composed from the same effect operations. */
+export interface AbilityDef {
+  readonly trigger: string;
+  readonly conditions?: readonly ConditionDef[];
+  readonly effects: readonly EffectDef[];
 }
 
 /** Full definition of a single card in the card database. */
@@ -36,6 +72,14 @@ export interface CardDefinition {
   readonly cost: CardCost;
   readonly stats?: CardStats;
   readonly effects: readonly EffectDef[];
+  /** Game-owned faction id; omitted cards are neutral. */
+  readonly faction?: string;
+  /** Player-facing rules text. */
+  readonly text?: string;
+  /** Built-in semantic keyword ids. */
+  readonly keywords?: readonly string[];
+  /** Triggered abilities resolved by the deterministic engine. */
+  readonly abilities?: readonly AbilityDef[];
 }
 
 /** Canonical target selectors for effect targeting (ADR-0002). */
@@ -54,6 +98,79 @@ export const TARGET_SELECTORS = Object.freeze([
 /** A valid target selector string. */
 export type TargetSelector = (typeof TARGET_SELECTORS)[number];
 
+/** Convert a validated editor definition into the complete deterministic engine contract. */
+export function cardDefinitionToSpec(card: CardDefinition): CardSpec {
+  const effects = card.effects.map(effectDefinitionToEngine);
+  const abilities: EngineAbility[] = (card.abilities ?? []).map((ability) => ({
+    trigger: ability.trigger as EngineAbility['trigger'],
+    ...(ability.conditions === undefined
+      ? {}
+      : { conditions: ability.conditions.map(conditionDefinitionToEngine) }),
+    effects: ability.effects.map(effectDefinitionToEngine),
+  }));
+
+  return {
+    kind: card.kind,
+    type: card.type,
+    cost: card.cost.energy,
+    ...(card.stats === undefined ? {} : { attack: card.stats.attack, health: card.stats.health }),
+    ...(effects.length === 0 ? {} : { effects }),
+    ...(card.keywords === undefined ? {} : { keywords: card.keywords }),
+    ...(abilities.length === 0 ? {} : { abilities }),
+  };
+}
+
+function effectDefinitionToEngine(effect: EffectDef): EngineEffect {
+  return {
+    op: effect.op as EngineEffect['op'],
+    ...(effect.amount === undefined ? {} : { amount: effect.amount }),
+    ...(effect.target === undefined ? {} : { target: definitionTargetToEngine(effect.target) }),
+    ...(effect.kind === undefined ? {} : { kind: effect.kind }),
+    ...(effect.counter === undefined ? {} : { counter: effect.counter }),
+    ...(effect.stat === undefined ? {} : { stat: effect.stat }),
+    ...(effect.from === undefined
+      ? {}
+      : { from: effect.from as NonNullable<EngineEffect['from']> }),
+    ...(effect.to === undefined ? {} : { to: effect.to as NonNullable<EngineEffect['to']> }),
+    ...(effect.keyword === undefined ? {} : { keyword: effect.keyword }),
+    ...(effect.status === undefined ? {} : { status: effect.status }),
+    ...(effect.duration === undefined ? {} : { duration: effect.duration }),
+    ...(effect.attachmentType === undefined ? {} : { attachmentType: effect.attachmentType }),
+    ...(effect.attack === undefined ? {} : { attack: effect.attack }),
+    ...(effect.health === undefined ? {} : { health: effect.health }),
+    ...(effect.trigger === undefined
+      ? {}
+      : { trigger: effect.trigger as NonNullable<EngineEffect['trigger']> }),
+    ...(effect.effects === undefined
+      ? {}
+      : { effects: effect.effects.map(effectDefinitionToEngine) }),
+    ...(effect.options === undefined
+      ? {}
+      : { options: effect.options.map((option) => option.map(effectDefinitionToEngine)) }),
+  };
+}
+
+function conditionDefinitionToEngine(condition: ConditionDef): EngineCondition {
+  return {
+    subject: condition.subject,
+    metric: condition.metric,
+    operator: condition.operator,
+    value: condition.value,
+    ...(condition.counter === undefined ? {} : { counter: condition.counter }),
+  };
+}
+
+function definitionTargetToEngine(target: string): EngineTargetSelector {
+  switch (target) {
+    case 'ownBase':
+    case 'owner':
+      return 'self';
+    case 'opponent':
+      return 'enemyBase';
+    default:
+      return target as EngineTargetSelector;
+  }
+}
 /** A single validation issue emitted by the validator. */
 export interface ValidationIssue {
   readonly code: IssueCode;
@@ -158,51 +275,126 @@ export function validateCardDefinition(value: unknown): ValidationResult {
     }
   }
 
-  // effects
-  const effects = card['effects'];
-  if (Array.isArray(effects)) {
-    for (let i = 0; i < effects.length; i++) {
-      const raw = effects[i];
-      // Guard non-object effect entries (null/undefined/primitive/array) so the
-      // validator never throws on malformed effect lists.
-      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-        issues.push({
-          code: ISSUE_CODES.UNKNOWN_EFFECT_OP,
-          message: `effect[${i}] must be an object with an op`,
-        });
-        continue;
-      }
-      const effect = raw as Record<string, unknown>;
-      // op
-      if (typeof effect['op'] !== 'string' || !isV1Operation(effect['op'])) {
-        issues.push({
-          code: ISSUE_CODES.UNKNOWN_EFFECT_OP,
-          message: `effect[${i}].op is not a known v1 operation: ${String(effect['op'])}`,
-        });
-      }
-      // target
-      if (effect['target'] !== undefined) {
-        if (!(TARGET_SELECTORS as readonly string[]).includes(effect['target'] as string)) {
+  validateEffects(card['effects'], 'effect', issues);
+
+  const keywords = card['keywords'];
+  if (keywords !== undefined) {
+    if (
+      !Array.isArray(keywords) ||
+      keywords.some((keyword) => typeof keyword !== 'string' || !isBuiltinKeyword(keyword)) ||
+      new Set(keywords).size !== keywords.length
+    ) {
+      issues.push({
+        code: ISSUE_CODES.INVALID_KEYWORD,
+        message: 'keywords must contain unique built-in semantic ids',
+      });
+    }
+  }
+
+  const abilities = card['abilities'];
+  if (abilities !== undefined) {
+    if (!Array.isArray(abilities)) {
+      issues.push({
+        code: ISSUE_CODES.INVALID_ABILITY_TRIGGER,
+        message: 'abilities must be an array',
+      });
+    } else {
+      abilities.forEach((raw, index) => {
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
           issues.push({
-            code: ISSUE_CODES.UNKNOWN_TARGET_SELECTOR,
-            message: `effect[${i}].target is not a known selector: ${String(effect['target'])}`,
+            code: ISSUE_CODES.INVALID_ABILITY_TRIGGER,
+            message: `ability[${index}] must be an object`,
+          });
+          return;
+        }
+        const ability = raw as Record<string, unknown>;
+        if (typeof ability['trigger'] !== 'string' || !isAbilityTrigger(ability['trigger'])) {
+          issues.push({
+            code: ISSUE_CODES.INVALID_ABILITY_TRIGGER,
+            message: `ability[${index}].trigger is unsupported: ${String(ability['trigger'])}`,
           });
         }
-      }
-      // amount
-      if (effect['amount'] !== undefined) {
-        if (!isInteger(effect['amount']) || (effect['amount'] as number) < 0) {
+        validateEffects(ability['effects'], `ability[${index}].effect`, issues);
+        const conditions = ability['conditions'];
+        if (conditions !== undefined && !validConditions(conditions)) {
           issues.push({
-            code: ISSUE_CODES.INVALID_EFFECT_AMOUNT,
-            message: `effect[${i}].amount must be an integer >= 0`,
+            code: ISSUE_CODES.INVALID_ABILITY_TRIGGER,
+            message: `ability[${index}].conditions are invalid`,
           });
         }
-      }
+      });
     }
   }
   // missing/non-array effects: treated as fine (empty is allowed, and undefined just means no effects array to validate)
 
   return { ok: issues.length === 0, issues };
+}
+
+function validConditions(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  const subjects = ['source', 'controller', 'opponent'];
+  const metrics = ['base', 'energy', 'damage', 'units', 'handSize', 'counter'];
+  const operators = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte'];
+  return value.every((raw) => {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+    const condition = raw as Record<string, unknown>;
+    return (
+      subjects.includes(String(condition['subject'])) &&
+      metrics.includes(String(condition['metric'])) &&
+      operators.includes(String(condition['operator'])) &&
+      isInteger(condition['value'])
+    );
+  });
+}
+
+function validateEffects(value: unknown, label: string, issues: ValidationIssue[]): void {
+  if (!Array.isArray(value)) {
+    return;
+  }
+
+  value.forEach((raw, index) => {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      issues.push({
+        code: ISSUE_CODES.UNKNOWN_EFFECT_OP,
+        message: `${label}[${index}] must be an object with an op`,
+      });
+      return;
+    }
+    const effect = raw as Record<string, unknown>;
+    if (typeof effect['op'] !== 'string' || !isV1Operation(effect['op'])) {
+      issues.push({
+        code: ISSUE_CODES.UNKNOWN_EFFECT_OP,
+        message: `${label}[${index}].op is not a known v1 operation: ${String(effect['op'])}`,
+      });
+    }
+    if (
+      effect['target'] !== undefined &&
+      !(TARGET_SELECTORS as readonly string[]).includes(effect['target'] as string)
+    ) {
+      issues.push({
+        code: ISSUE_CODES.UNKNOWN_TARGET_SELECTOR,
+        message: `${label}[${index}].target is not a known selector: ${String(effect['target'])}`,
+      });
+    }
+    const signedAmount =
+      effect['op'] === 'modifyStat' || effect['op'] === 'modifyStatUntilEndOfTurn';
+    if (
+      effect['amount'] !== undefined &&
+      (!isInteger(effect['amount']) || (!signedAmount && (effect['amount'] as number) < 0))
+    ) {
+      issues.push({
+        code: ISSUE_CODES.INVALID_EFFECT_AMOUNT,
+        message: `${label}[${index}].amount must be an integer >= 0`,
+      });
+    }
+    validateEffects(effect['effects'], `${label}[${index}].effect`, issues);
+    const options = effect['options'];
+    if (Array.isArray(options)) {
+      options.forEach((option, optionIndex) =>
+        validateEffects(option, `${label}[${index}].option[${optionIndex}]`, issues),
+      );
+    }
+  });
 }
 
 /**

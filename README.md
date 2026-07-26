@@ -1,89 +1,70 @@
-# OpenCards
+# OpenCards Foundry
 
-OpenCards is the card-game member of the Open\* engine family. It is planned as a deterministic engine, editor and simulator for games where cards are the primary object: duels, deckbuilders, drafting games, trick-taking games, expandable card games and card-driven board games.
+OpenCards is a deterministic toolkit for building digital card games from data. The repository ships two things together:
 
-OpenBoard already proves the shared pattern: commands, events, deterministic replay, declarative data, browser demo and editor-first workflows. OpenCards should go deeper on cards than OpenBoard does.
+- **OpenCards Studio**, the reusable engine, validators, AI, simulator, deck builder, card creator, and replay surface.
+- **Ember Duel: Foundry Set**, a complete reference game that demonstrates how to build a game without embedding card-specific rules in the core.
 
-## Why This Exists
+## Try It
 
-OpenBoard can handle cards inside a board game. OpenCards should own the hard card-game problems:
+Requirements: Node.js 22.6 or newer.
 
-- deck construction and legality;
-- card zones and visibility;
-- timing windows and priority;
-- effect resolution;
-- stack/queue behavior;
-- targeting;
-- keywords and replacement effects;
-- card text templating;
-- deterministic bot simulation;
-- replay and shareable match files.
+    npm install
+    npm run dev --workspace=@opencards/app -- --host 127.0.0.1 --port 5180
 
-## MVP Target
+Open http://127.0.0.1:5180.
 
-The MVP is a two-player browser demo with:
+Use Play for the reference duel and five scenario tutorials, Deck for construction and JSON import/export, Create for the visual/advanced card editor, and Rules for the integrated rulebook and format settings.
 
-- declarative card definitions in JSON;
-- a small starter deck format;
-- deterministic setup, shuffle and draw;
-- hand, deck, discard, exile and battlefield zones;
-- command/event/replay core;
-- simple effect DSL for damage, resource gain, draw, discard and summon;
-- deck validator;
-- basic card editor;
-- bot-vs-bot simulation;
-- browser play surface.
+Run the complete confidence gate with:
 
-## Planned Repo Layout
+    npm run verify:mvp
 
-```text
-opencards/
-  docs/
-  examples/
-    starter-deck.json
-  packages/
-    core/
-    effects/
-    schema/
-    simulator/
-    app/
-```
+That command checks types, lint, formatting, package tests and coverage, deterministic replay, hidden information, schema/runtime validation, the simulator, 400 balance matches, both production builds, browser smoke, and Playwright end-to-end flows.
 
-## Relationship To OpenBoard
+## Ember Duel: Foundry Set
 
-OpenCards should not replace OpenBoard. It should become a specialist engine that can later be embedded by OpenBoard for card-heavy board games.
+- Two asymmetric 20-card starter decks: Ember and Verdant.
+- 20 base health, opening hand of four, energy that grows and refills from 1 to 10.
+- Five battlefield spaces and directed unit/base combat.
+- 40 original cards: 16 Ember, 16 Verdant, and 8 neutral.
+- Eight combat keywords plus triggers, statuses, counters, attachments, secrets, zone movement, resurrection, fatigue, area/adjacent/random damage, and choose-one effects.
+- A Verdant opponent driven only by public viewMatch and legalCommands data.
+- Five deterministic tutorials built from real scenario setup, not a parallel tutorial engine.
+- Seeded batch simulation; the checked 400-match baseline is approximately even.
 
-Shared ideas:
+The full player and creator guide is in docs/foundry-guide.md.
 
-- deterministic command dispatcher;
-- replay envelopes;
-- JSON Schema plus runtime validation;
-- visual smoke tests;
-- editor writes data, not rules.
+## Architecture
 
-Different emphasis:
+    games/
+      ember-foundry/   reference game, cards, decks, scenarios
+      quick-sparks/    second ruleset proving core reuse
+    packages/
+      core/            deterministic state, rulesets, commands, replay, projections
+      effects/         canonical operations, keywords, and trigger vocabulary
+      schema/          validation and CardDefinition -> CardSpec conversion
+      ai/              legal-command policies and batch match simulation
+      simulator/       replay matrices and deterministic harnesses
+      app/             React player, tutorials, editors, and rulebook
 
-- OpenBoard: spatial board/card/piece games.
-- OpenCards: timing, zones, deck legality, card text and effect systems.
+The central invariant is:
 
-## Development Status
+    schemaVersion + seed + setupOpts + ordered commands = final state hash
 
-The current quality gate is `npm run check`; see [dev-system](docs/dev-system.md) and [ADR-0004](docs/adr/0004-dev-system-phase-0-deferrals-and-runner.md).
-Phase 1 wires: typecheck, lint, format:check, test (per package via the Windows-safe runner from ADR-0003), verify:coverage-overall, verify:replay, verify:hidden-info.
-`verify:mvp` remains deferred to Phase 7.
-Live demo deploys from packages/app via Vercel; see README's Deploy section.
+The UI and AI never mutate canonical state directly. They receive player-safe projections and submit commands generated by the engine. Hidden hands, decks, and secret definitions remain outside opponent projections.
 
-## Deploy
+## Create A Game
 
-- Repo root is the Vercel project root.
-- Build command: `npm run build:app`.
-- Output: `packages/app/dist-web`.
-- Node version: 22.6+ (matches engines.node).
+1. Define a serializable Ruleset: phase order, board/hand limits, energy progression, and fatigue.
+2. Define and validate CardDefinition records.
+3. Convert definitions with cardDefinitionToSpec; nested effects and conditions are preserved.
+4. Provide decklists and optional deterministic scenarios through SetupOpts.
+5. Start through startMatch, render viewMatch, and expose only legalCommands.
+6. Add package tests and run npm run verify:mvp.
 
-## First Demo Candidate
+games/quick-sparks is the compact example: it changes phase order, board size, energy, fatigue, cards, and decks without changing packages/core.
 
-Working title: **Ember Duel**.
+## Scope
 
-Two players use small 12-card decks. Each turn they gain energy, play units or tactics, attack the opponent, and race to reduce the rival base to zero.
-
-The demo is intentionally small but should prove card zones, targeting, deterministic draws, legal command generation and replay.
+This is a complete local reference game and creator foundation, not an online commercial service. Accounts, matchmaking, networking, monetization, and a hosted content marketplace are intentionally outside this repository.

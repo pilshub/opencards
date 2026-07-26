@@ -5,6 +5,8 @@
 
 import { ISSUE_CODES } from './index.js';
 import type { ValidationIssue, ValidationResult } from './card-definition.js';
+import type { Ruleset } from '@opencards/core';
+import { validateRuleset } from './ruleset.js';
 
 /** The rules/settings that govern a game format. */
 export interface GameFormat {
@@ -14,6 +16,8 @@ export interface GameFormat {
   readonly copyLimit: number;
   readonly baseTotal: number;
   readonly startingEnergy: number;
+  /** Optional deterministic rules profile; absent formats use the classic engine profile. */
+  readonly ruleset?: Ruleset;
 }
 
 /** Default valid format for the Ember Duel demo. */
@@ -93,6 +97,10 @@ export function validateFormat(value: unknown): ValidationResult {
       code: ISSUE_CODES.INVALID_STARTING_ENERGY,
       message: 'startingEnergy must be an integer >= 0',
     });
+  }
+
+  if (fmt['ruleset'] !== undefined) {
+    issues.push(...validateRuleset(fmt['ruleset']).issues);
   }
 
   return { ok: issues.length === 0, issues };

@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
+    "@opencards/core": "*",
     "@opencards/effects": "*"
   },
   "scripts": {

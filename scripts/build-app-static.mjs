@@ -12,9 +12,11 @@ const appDir = path.join(rootDir, 'packages', 'app');
 const outDir = path.join(appDir, 'dist-web');
 
 const modules = [
+  ['ai', path.join(rootDir, 'packages', 'ai', 'src')],
   ['effects', path.join(rootDir, 'packages', 'effects', 'src')],
   ['schema', path.join(rootDir, 'packages', 'schema', 'src')],
   ['core', path.join(rootDir, 'packages', 'core', 'src')],
+  ['ember-foundry', path.join(rootDir, 'games', 'ember-foundry', 'src')],
   ['app', path.join(appDir, 'src')],
 ];
 
@@ -168,6 +170,7 @@ function withKey(props, key) {
   return key === undefined ? props : { ...(props ?? {}), key };
 }
 
+
 export function jsx(type, props, key) {
   return React.createElement(type, withKey(props ?? {}, key));
 }
@@ -202,13 +205,17 @@ export default Motion;
   );
 }
 
+async function copyPublicFiles() {
+  await cp(path.join(appDir, 'public'), outDir, { recursive: true });
+}
+
 async function writeHtml() {
   const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenCards · Ember Duel demo</title>
+    <title>OpenCards Foundry</title>
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
@@ -223,6 +230,8 @@ async function writeHtml() {
           "@noble/hashes/sha256": "/vendor/noble/sha256.js",
           "@noble/hashes/utils": "/vendor/noble/utils.js",
           "@opencards/core": "/modules/core/index.js",
+          "@opencards/ai": "/modules/ai/index.js",
+          "@opencards/ember-foundry": "/modules/ember-foundry/index.js",
           "@opencards/effects": "/modules/effects/index.js",
           "@opencards/schema": "/modules/schema/index.js",
           "framer-motion": "/vendor/framer-motion-wrapper.js",
@@ -242,5 +251,5 @@ async function writeHtml() {
 
 await rm(outDir, { recursive: true, force: true });
 await Promise.all(modules.map(([moduleName, srcDir]) => transpileModule(moduleName, srcDir)));
-await Promise.all([buildCss(), copyVendorFiles()]);
+await Promise.all([buildCss(), copyVendorFiles(), copyPublicFiles()]);
 await writeHtml();

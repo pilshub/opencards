@@ -1,19 +1,21 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CardKind, PlayerId, ReplayEnvelopeV1, SetupOpts } from '@opencards/core';
+import type { CardDefinition } from '@opencards/schema';
 import { replayEnvelope, startMatch, viewMatch } from '@opencards/core';
 import { createElement } from 'react';
 import App from './App.js';
+import { FOUNDRY_CARDS } from '@opencards/ember-foundry';
 import type { AppProps } from './App.js';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
-const cardKinds: readonly CardKind[] = ['spark-adept', 'ember-guard', 'flare-strike'];
-const cardLabels = ['Spark Adept', 'Ember Guard', 'Flare Strike'] as const;
+const cardKinds: readonly CardKind[] = ['spark-adept', 'ember-guard', 'searing-pact'];
+const cardLabels = FOUNDRY_CARDS.map((card) => card.name);
 const cardLabelByKind = new Map<CardKind, string>([
   ['spark-adept', 'Spark Adept'],
   ['ember-guard', 'Ember Guard'],
-  ['flare-strike', 'Flare Strike'],
+  ['searing-pact', 'Searing Pact'],
 ]);
 const setupOpts: SetupOpts = {
   seed: 42,
@@ -152,8 +154,8 @@ describe('@opencards/app Ember Duel demo', () => {
 
     const playerArea = screen.getByTestId('player-area');
     const opponentArea = screen.getByTestId('opponent-area');
-    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(5);
-    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(5);
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(4);
+    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(4);
     expect(within(opponentArea).getByTestId('opponent-card-0')).toBeTruthy();
   });
 
@@ -169,8 +171,8 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.click(within(playerArea).getByRole('button', { name: 'Draw card' }));
 
-    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(6);
-    expect(within(playerArea).getByTestId('deck-count-p1').textContent).toBe('6');
+    expect(within(playerArea).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(playerArea).getByTestId('deck-count-p1').textContent).toBe('15');
     expect(within(playerArea).getByRole('button', { name: 'Draw card' })).toHaveProperty(
       'disabled',
       true,
@@ -212,8 +214,8 @@ describe('@opencards/app Ember Duel demo', () => {
 
     const playerArea = screen.getByTestId('player-area');
     const opponentArea = screen.getByTestId('opponent-area');
-    expect(within(playerArea).getAllByTestId('own-card-p2')).toHaveLength(5);
-    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(5);
+    expect(within(playerArea).getAllByTestId('own-card-p2')).toHaveLength(4);
+    expect(within(opponentArea).getAllByTestId(/^opponent-card-/)).toHaveLength(4);
 
     const { handles } = startMatch(setupOpts);
     const p1HandKinds = viewMatch(handles[p1]!).viewer.hand.map((card) => card.kind);
@@ -346,7 +348,7 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
     fireEvent.click(screen.getByTestId('reset-game'));
 
-    expect(screen.getByText('Start a new game to create both hot-seat player views.')).toBeTruthy();
+    expect(screen.getByText('Aprende jugando. Luego gana.')).toBeTruthy();
   });
 
   it('Export envelope produces valid JSON that round-trips', () => {
@@ -397,7 +399,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
     fireEvent.keyDown(window, { key: '1' });
 
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(6);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
   });
 
   it('shortcut focus guard ignores keys while typing in seed input', () => {
@@ -419,7 +421,7 @@ describe('@opencards/app Ember Duel demo', () => {
     replayTextarea.focus();
     fireEvent.keyDown(replayTextarea, { key: '1' });
 
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(4);
   });
 
   it("shortcut '2' draws for p2", () => {
@@ -430,18 +432,18 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.keyDown(window, { key: '2' });
     fireEvent.click(screen.getByTestId('view-as-p2'));
 
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(6);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(5);
   });
 
   it("shortcut 'v' toggles perspective", () => {
     render(createElement(App));
 
     fireEvent.keyDown(window, { key: 'n' });
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(4);
 
     fireEvent.keyDown(window, { key: 'v' });
 
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(5);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p2')).toHaveLength(4);
   });
 
   it("shortcut 'r' resets the match", () => {
@@ -451,7 +453,7 @@ describe('@opencards/app Ember Duel demo', () => {
     fireEvent.keyDown(window, { key: 'r' });
 
     expect(screen.queryByTestId('player-area')).toBeNull();
-    expect(screen.getByText('Start a new game to create both hot-seat player views.')).toBeTruthy();
+    expect(screen.getByText('Aprende jugando. Luego gana.')).toBeTruthy();
   });
 
   it("shortcut '1' is a no-op when p1 deck is empty", () => {
@@ -804,7 +806,7 @@ describe('@opencards/app Ember Duel demo', () => {
 
       fireEvent.click(screen.getByTestId('view-as-p2'));
 
-      expect(screen.getByTestId('energy-p2').textContent).toBe('1');
+      expect(screen.getByTestId('energy-p2').textContent).toBe('2');
     });
 
     it('end phase advances the phase', () => {
@@ -976,20 +978,24 @@ describe('@opencards/app Ember Duel demo', () => {
           startingEnergy: 5,
         }),
       );
+      localStorage.setItem(
+        DECK_LS_KEY,
+        JSON.stringify(['searing-pact', 'searing-pact', 'searing-pact']),
+      );
       render(createElement(App));
       fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
       fireEvent.click(screen.getByTestId('end-phase'));
 
       const flareCard = within(screen.getByTestId('player-area'))
         .getAllByTestId('own-card-p1')
-        .find((card) => card.textContent?.includes('Flare Strike'));
+        .find((card) => card.textContent?.includes('Searing Pact'));
       expect(flareCard).toBeTruthy();
 
       fireEvent.click(within(flareCard!).getByRole('button', { name: 'Play' }));
 
       const stack = screen.getByTestId('stack');
       expect(screen.getByTestId('targeting-state').textContent).toBe('awaitingTarget');
-      expect(stack.textContent).toContain('flare-strike');
+      expect(stack.textContent).toContain('searing-pact');
       expect(stack.textContent).toContain('no target');
       expect(screen.queryByTestId('resolve-stack')).toBeNull();
 
@@ -1008,51 +1014,83 @@ describe('@opencards/app Ember Duel demo', () => {
       expect(screen.getByTestId('hash-match').textContent).toBe('match');
     });
 
-    it('opponent battlefield is public: p2 unit is visible from p1 perspective', () => {
-      localStorage.setItem(
-        'opencards.format',
-        JSON.stringify({
-          name: 'Test',
-          deckSize: 12,
-          openingHandSize: 3,
-          copyLimit: 4,
-          baseTotal: 20,
-          startingEnergy: 5,
-        }),
-      );
+    it('guides a new player through a complete winning turn and into an AI match', () => {
       render(createElement(App));
-      fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
 
-      // End p1 turn → p2 active
+      expect(screen.getByTestId('hero-guided-tutorial')).toBeTruthy();
+      fireEvent.click(screen.getByTestId('hero-guided-tutorial'));
+
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Antes de mover');
+      expect(screen.queryByTestId('perspective-toggle')).toBeNull();
+      expect(screen.getByTestId('bot-enabled')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('legal-commands-count').textContent).toBe('0');
+
       fireEvent.click(screen.getByTestId('end-turn'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Antes de mover');
 
-      // Switch view to p2
-      fireEvent.click(screen.getByTestId('view-as-p2'));
+      fireEvent.click(screen.getByTestId('guided-begin'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 1 de 6');
+      expect(screen.getByTestId('draw-card')).toHaveProperty('disabled', false);
+      expect(screen.getByTestId('end-phase')).toHaveProperty('disabled', true);
 
-      // End phase to main
+      fireEvent.click(screen.getByTestId('draw-card'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 2 de 6');
+      expect(screen.getByTestId('end-phase')).toHaveProperty('disabled', false);
+
       fireEvent.click(screen.getByTestId('end-phase'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 3 de 6');
 
-      // Play a card as p2
-      const playerArea = screen.getByTestId('player-area');
-      const playButtons = within(playerArea).getAllByRole('button', { name: 'Play' });
-      const enabledButton = playButtons.find((btn) => !(btn as HTMLButtonElement).disabled);
-      if (!enabledButton) return; // skip if no tactic/unit with cost <= energy
-      fireEvent.click(enabledButton);
+      const handCards = screen.getAllByTestId('own-card-p1');
+      const cinder = handCards.find((card) => card.dataset.cardKind === 'cinder-initiate');
+      const colossus = handCards.find((card) => card.dataset.cardKind === 'molten-colossus');
+      expect(cinder).toBeTruthy();
+      expect(colossus).toBeTruthy();
+      expect(within(cinder!).getByRole('button', { name: 'Play' })).toHaveProperty(
+        'disabled',
+        false,
+      );
+      expect(within(colossus!).getByRole('button', { name: 'Play' })).toHaveProperty(
+        'disabled',
+        true,
+      );
 
-      // Switch to p1 view
-      fireEvent.click(screen.getByTestId('view-as-p1'));
+      fireEvent.click(within(cinder!).getByRole('button', { name: 'Play' }));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 4 de 6');
+      expect(screen.getByTestId('battlefield-p1').textContent).toContain('Cinder Initiate');
 
-      // Opponent area should show p2's battlefield publicly
+      fireEvent.click(screen.getByTestId('end-phase'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 5 de 6');
+
+      fireEvent.click(
+        within(screen.getByTestId('battlefield-p1')).getByRole('button', { name: 'Attack' }),
+      );
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Paso 6 de 6');
+      expect(screen.getByTestId('attack-target-base')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('attack-target-base'));
+      expect(screen.getByTestId('guided-stage').textContent).toContain('Tutorial completado');
+      expect(screen.getByTestId('winner-banner').textContent).toContain('p1 wins');
+      expect(screen.getByTestId('base-p2').textContent).toBe('0');
+      expect(screen.getByTestId('tutorial-complete')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('guided-play-match'));
+      expect(screen.queryByTestId('guided-tutorial')).toBeNull();
+      expect(screen.getByTestId('bot-enabled')).toHaveProperty('checked', true);
+      expect(screen.getByTestId('board')).toBeTruthy();
+    });
+
+    it('opponent battlefield is public while the hand remains masked', () => {
+      render(createElement(App));
+      fireEvent.click(screen.getByTestId('tutorial-guard-rush'));
+
       const opponentArea = screen.getByTestId('opponent-area');
-      const oppBattlefield = within(opponentArea).getByTestId('battlefield-p2');
-      const units = oppBattlefield.querySelectorAll('[data-testid^="bf-unit-"]');
-      expect(units.length).toBeGreaterThan(0);
-
-      // The opponent HAND (masked backs) should still have no kind text
-      const opponentHandZone = within(opponentArea).getByTestId('opponent-p2');
-      for (const kind of ['spark-adept', 'ember-guard', 'flare-strike'] as const) {
-        expect(opponentHandZone.textContent).not.toContain(kind);
-      }
+      const units = within(opponentArea)
+        .getByTestId('battlefield-p2')
+        .querySelectorAll('[data-testid^="bf-unit-"]');
+      expect(units.length).toBe(1);
+      expect(within(opponentArea).getByTestId('opponent-p2').textContent).not.toContain(
+        'ashen-guard',
+      );
     });
   });
 
@@ -1181,9 +1219,11 @@ describe('@opencards/app Format Editor', () => {
 
     const stored = JSON.parse(localStorage.getItem(FORMAT_LS_KEY) ?? 'null') as {
       deckSize: number;
+      ruleset?: { id: string };
     };
     expect(stored).not.toBeNull();
     expect(stored.deckSize).toBe(20);
+    expect(stored.ruleset?.id).toBe('opencards.ember-foundry');
   });
 
   it('on mount a pre-seeded valid localStorage format populates the fields', () => {
@@ -1224,7 +1264,7 @@ describe('@opencards/app Format Editor', () => {
 
     const deckSizeInput = screen.getByLabelText('Deck size') as HTMLInputElement;
     // Should have fallen back to DEFAULT_FORMAT deckSize (12)
-    expect(Number(deckSizeInput.value)).toBe(12);
+    expect(Number(deckSizeInput.value)).toBe(20);
   });
 });
 
@@ -1375,6 +1415,71 @@ describe('@opencards/app Card Creator', () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]?.name).toBe('Version Two');
   });
+  it('builds a triggered keyword ability in visual mode', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'ward-smith' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Ward Smith' } });
+    fireEvent.click(screen.getByText('guard'));
+    fireEvent.click(screen.getByTestId('add-effect'));
+    fireEvent.change(screen.getByLabelText('Effect 1 trigger'), { target: { value: 'onPlay' } });
+    fireEvent.change(screen.getByLabelText('Effect 1 op'), { target: { value: 'addCounter' } });
+    fireEvent.change(screen.getByLabelText('Effect 1 amount'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Effect 1 target'), { target: { value: 'ownUnit' } });
+    fireEvent.change(screen.getByLabelText('Effect 1 extra parameters'), {
+      target: { value: '{"counter":"ward"}' },
+    });
+    expect(screen.getByTestId('validation-ok')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('save-card'));
+    const saved = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as CardDefinition[];
+    expect(saved[0]?.keywords).toEqual(['guard']);
+    expect(saved[0]?.abilities?.[0]).toMatchObject({
+      trigger: 'onPlay',
+      effects: [{ op: 'addCounter', amount: 1, target: 'ownUnit', counter: 'ward' }],
+    });
+    fireEvent.click(screen.getByTestId('remove-effect-0'));
+  });
+
+  it('accepts nested advanced JSON and rejects malformed JSON', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+    fireEvent.click(screen.getByTestId('editor-mode-json'));
+    const editor = screen.getByTestId('advanced-json');
+    const advanced = {
+      kind: 'forked-path',
+      name: 'Forked Path',
+      faction: 'neutral',
+      type: 'tactic',
+      cost: { energy: 2 },
+      effects: [
+        {
+          op: 'chooseOne',
+          options: [
+            [{ op: 'drawCards', amount: 2, target: 'self' }],
+            [{ op: 'heal', amount: 4, target: 'self' }],
+          ],
+        },
+      ],
+    };
+    fireEvent.change(editor, { target: { value: JSON.stringify(advanced) } });
+    expect(screen.getByTestId('validation-ok')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('save-card'));
+    expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')[0]).toEqual(advanced);
+    fireEvent.change(editor, { target: { value: '{bad json' } });
+    expect(screen.getByTestId('save-card')).toHaveProperty('disabled', true);
+  });
+
+  it('reports invalid visual extra-parameter JSON', () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByTestId('nav-create'));
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'broken-params' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Broken Params' } });
+    fireEvent.click(screen.getByTestId('add-effect'));
+    fireEvent.change(screen.getByLabelText('Effect 1 extra parameters'), {
+      target: { value: '[]' },
+    });
+    expect(screen.getByTestId('validation-issues')).toBeTruthy();
+  });
 });
 
 describe('@opencards/app Deck Editor', () => {
@@ -1389,20 +1494,20 @@ describe('@opencards/app Deck Editor', () => {
 
     expect(screen.getByTestId('deck-editor')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
-    expect(screen.getByTestId('deck-size').textContent).toBe('0/12');
+    expect(screen.getByTestId('deck-size').textContent).toBe('0/20');
     expect(screen.getByTestId('deck-legality').textContent).toContain('OC-0003');
 
-    const addSpark = screen.getByTestId('deck-add-spark-adept');
+    const addSpark = screen.getByTestId('deck-add-cinder-initiate');
     fireEvent.click(addSpark);
     fireEvent.click(addSpark);
     fireEvent.click(addSpark);
     fireEvent.click(addSpark);
 
-    expect(screen.getByTestId('deck-copies-spark-adept').textContent).toContain('4');
+    expect(screen.getByTestId('deck-copies-cinder-initiate').textContent).toContain('2');
     expect(addSpark).toHaveProperty('disabled', true);
 
-    fireEvent.click(screen.getByTestId('deck-remove-spark-adept'));
-    expect(screen.getByTestId('deck-copies-spark-adept').textContent).toContain('3');
+    fireEvent.click(screen.getByTestId('deck-remove-cinder-initiate'));
+    expect(screen.getByTestId('deck-copies-cinder-initiate').textContent).toContain('1');
   });
 
   it('exports cards, deck, and format JSON from the deck editor', () => {
@@ -1433,12 +1538,14 @@ describe('@opencards/app Deck Editor', () => {
       },
     ]);
 
-    fireEvent.click(screen.getByTestId('deck-add-flare-strike'));
+    fireEvent.click(screen.getByTestId('deck-add-searing-pact'));
     fireEvent.click(screen.getByTestId('export-deck'));
-    expect(JSON.parse(exportOutput.value)).toEqual(['flare-strike']);
+    expect(JSON.parse(exportOutput.value)).toEqual(['searing-pact']);
 
     fireEvent.click(screen.getByTestId('export-format'));
-    expect((JSON.parse(exportOutput.value) as { name: string }).name).toBe('Ember Duel');
+    expect((JSON.parse(exportOutput.value) as { name: string }).name).toBe(
+      'Ember Duel: Foundry Set',
+    );
   });
 
   it('validates imported cards, decks, and formats before writing localStorage', () => {
@@ -1542,7 +1649,7 @@ describe('@opencards/app Deck Editor', () => {
     );
     localStorage.setItem(
       DECK_LS_KEY,
-      JSON.stringify(['flare-strike', 'flare-strike', 'flare-strike']),
+      JSON.stringify(['searing-pact', 'searing-pact', 'searing-pact']),
     );
     render(createElement(App));
 
@@ -1552,7 +1659,7 @@ describe('@opencards/app Deck Editor', () => {
     const handCards = within(playerArea).getAllByTestId('own-card-p1');
     expect(handCards).toHaveLength(3);
     for (const card of handCards) {
-      expect(card.textContent).toContain('Flare Strike');
+      expect(card.textContent).toContain('Searing Pact');
     }
 
     fireEvent.click(screen.getByRole('button', { name: 'Export envelope' }));
@@ -1560,7 +1667,7 @@ describe('@opencards/app Deck Editor', () => {
       (screen.getByTestId('export-envelope') as HTMLTextAreaElement).value,
     ) as ReplayEnvelopeV1;
 
-    expect(envelope.setupOpts.decklist).toEqual(['flare-strike', 'flare-strike', 'flare-strike']);
+    expect(envelope.setupOpts.decklist).toEqual(['searing-pact', 'searing-pact', 'searing-pact']);
     expect(replayEnvelope(envelope).ok).toBe(true);
   });
 });
@@ -1592,7 +1699,7 @@ describe('@opencards/app custom game integration', () => {
     expect(toggle.disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'New Game' }));
-    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(5);
+    expect(within(screen.getByTestId('player-area')).getAllByTestId('own-card-p1')).toHaveLength(4);
   });
 
   it('plays with custom cards and shows their names in the viewer hand', () => {

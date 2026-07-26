@@ -42,6 +42,20 @@ export const ISSUE_CODES = Object.freeze({
   COPY_LIMIT_EXCEEDED: 'OC-0017',
   /** decklist contains a kind that is not present in the active card database */
   UNKNOWN_CARD_KIND: 'OC-0018',
+  /** ruleset root/id/version is malformed */
+  INVALID_RULESET: 'OC-0019',
+  /** phase order is empty, duplicated, unsupported, or misses startingPhase */
+  INVALID_PHASE_ORDER: 'OC-0020',
+  /** battlefield/hand limit is neither null nor a positive integer */
+  INVALID_RULESET_LIMIT: 'OC-0021',
+  /** energy progression configuration is malformed */
+  INVALID_ENERGY_RULES: 'OC-0022',
+  /** fatigue progression configuration is malformed */
+  INVALID_FATIGUE_RULES: 'OC-0023',
+  /** keyword is unknown or duplicated */
+  INVALID_KEYWORD: 'OC-0024',
+  /** triggered ability timing is unsupported */
+  INVALID_ABILITY_TRIGGER: 'OC-0025',
 } as const);
 
 /** Stable validator issue code emitted by schema checks. */
@@ -54,6 +68,7 @@ export type {
   CardCost,
   CardStats,
   EffectDef,
+  AbilityDef,
   TargetSelector,
   ValidationIssue,
   ValidationResult,
@@ -61,6 +76,7 @@ export type {
 /** Canonical target selector values for effect targeting. */
 export {
   TARGET_SELECTORS,
+  cardDefinitionToSpec,
   validateCardDefinition,
   validateCardDatabase,
 } from './card-definition.js';
@@ -74,3 +90,6 @@ export { validateFormat } from './format.js';
 export type { DecklistValidationContext } from './decklist.js';
 /** Validate a decklist and hash a valid ordered decklist reproducibly. */
 export { hashDecklist, validateDecklist } from './decklist.js';
+/** Serializable ruleset contract and runtime validator. */
+export type { Ruleset } from '@opencards/core';
+export { validateRuleset } from './ruleset.js';

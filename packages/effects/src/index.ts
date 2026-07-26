@@ -19,6 +19,18 @@ export const V1_OPERATIONS = Object.freeze([
   'discardCards',
   'addCounter',
   'modifyStatUntilEndOfTurn',
+  'modifyStat',
+  'applyStatus',
+  'silence',
+  'addKeyword',
+  'removeKeyword',
+  'attach',
+  'setSecret',
+  'resurrectUnit',
+  'damageAll',
+  'damageAdjacent',
+  'randomDamage',
+  'chooseOne',
 ] as const);
 
 /** Operation name supported by the v1 effect DSL. */
@@ -27,4 +39,40 @@ export type V1Operation = (typeof V1_OPERATIONS)[number];
 /** True if a name is a known v1 operation. */
 export function isV1Operation(name: string): name is V1Operation {
   return (V1_OPERATIONS as readonly string[]).includes(name);
+}
+
+/** Built-in semantic keyword ids. Games may localize their displayed names. */
+export const BUILTIN_KEYWORDS = Object.freeze([
+  'guard',
+  'haste',
+  'charge',
+  'rush',
+  'shield',
+  'lifesteal',
+  'poisonous',
+  'stealth',
+] as const);
+
+export type BuiltinKeyword = (typeof BUILTIN_KEYWORDS)[number];
+
+/** Trigger timings supported by the first Foundry ability contract. */
+export const ABILITY_TRIGGERS = Object.freeze([
+  'onPlay',
+  'onDeath',
+  'onAttack',
+  'turnStart',
+  'turnEnd',
+  'onEnemyPlay',
+  'onEnemyAttack',
+  'onFriendlyDeath',
+] as const);
+
+export type AbilityTrigger = (typeof ABILITY_TRIGGERS)[number];
+
+export function isBuiltinKeyword(name: string): name is BuiltinKeyword {
+  return (BUILTIN_KEYWORDS as readonly string[]).includes(name);
+}
+
+export function isAbilityTrigger(name: string): name is AbilityTrigger {
+  return (ABILITY_TRIGGERS as readonly string[]).includes(name);
 }

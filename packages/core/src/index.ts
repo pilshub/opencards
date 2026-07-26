@@ -14,30 +14,41 @@ import { getView } from './view.js';
 export const CORE_VERSION = '0.0.0' as const;
 
 export type {
+  AbilityTrigger,
   CardInstanceId,
   CardKind,
   CardSpec,
   Command,
   EffectOp,
   EngineEffect,
+  EngineCondition,
+  EngineAbility,
+  EnergyRules,
+  FatigueRules,
   HiddenDeckView,
   MaskedCardView,
+  KeywordId,
   OpponentPlayerView,
   OwnPlayerView,
   Phase,
   PlayerId,
   PlayerView,
+  PendingChoice,
+  Secret,
+  UnitAttachment,
   RNGState,
+  Ruleset,
   StackItem,
   TargetSelector,
   ValidationIssue,
   ZoneId,
 } from './types.js';
 export type { ReplayEnvelopeV1 } from './replay.js';
-export type { SetupOpts } from './setup.js';
+export type { SetupOpts, ScenarioSetup, ScenarioPlayerSetup, ScenarioUnitSetup } from './setup.js';
 export { canonicalJson, hashState } from './hash.js';
 export { nextRangeRng, nextRng, seedRng } from './rng.js';
 export { fisherYates } from './shuffle.js';
+export { CLASSIC_RULESET, FOUNDRY_RULESET, defineRuleset } from './ruleset.js';
 
 /** Opaque public viewer handle. Raw state is intentionally hidden behind the facade. */
 export type ViewerHandle = { readonly __brand: 'ViewerHandle' };

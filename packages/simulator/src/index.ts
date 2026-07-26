@@ -241,6 +241,8 @@ function commandPriority(state: State, player: PlayerId, command: Command): numb
       return command.target === 'base' ? 3 : 4;
     case 'resolveStack':
       return 3;
+    case 'makeChoice':
+      return 2;
     case 'drawCard':
       return 5;
     case 'endPhase':

@@ -107,6 +107,28 @@ describe('createInitialState', () => {
     ).toThrow(/decklist length/);
   });
 
+  it('supports distinct deterministic decklists per player', () => {
+    const p1Deck = Array.from({ length: 12 }, () => 'unit-a' as CardKind);
+    const p2Deck = Array.from({ length: 12 }, () => 'unit-b' as CardKind);
+    const state = createInitialState({
+      ...opts(17),
+      openingHandSize: 0,
+      decklists: { [p1]: p1Deck, [p2]: p2Deck },
+    });
+
+    expect(state.players[p1]?.deck.every((card) => card.kind === 'unit-a')).toBe(true);
+    expect(state.players[p2]?.deck.every((card) => card.kind === 'unit-b')).toBe(true);
+  });
+
+  it('rejects ambiguous or malformed per-player decklists', () => {
+    expect(() =>
+      createInitialState({ ...opts(1), decklist: Array(12).fill('unit-a'), decklists: {} }),
+    ).toThrow(/not both/);
+    expect(() => createInitialState({ ...opts(1), decklists: { [p1]: ['unit-a'] } })).toThrow(
+      /for p1/,
+    );
+  });
+
   it('falls back to cycling cardKinds when decklist is absent', () => {
     const state = createInitialState({ ...opts(11), openingHandSize: 0 });
     const generated = [...(state.players[p1]?.hand ?? []), ...(state.players[p1]?.deck ?? [])]

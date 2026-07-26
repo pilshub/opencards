@@ -1,40 +1,22 @@
-# OpenCards MVP Goal
+# OpenCards Foundry Goal
 
 ## Objective
 
-Build a focused card-game engine MVP that proves an author can define cards, validate decks, simulate a full match, replay it deterministically and expose a basic browser editor/player.
+Ship a reusable deterministic card-game platform and prove it with a polished, complete reference game rather than a card-specific engine.
 
-## Acceptance Criteria
+## Delivered Acceptance Criteria
 
-- deterministic match setup from seed;
-- declarative card JSON;
-- decklist validation;
-- hand/deck/discard/battlefield/stack zones;
-- legal command generation;
-- simple effect DSL;
-- hidden information projection;
-- replay envelope with card/deck hashes;
-- bot-vs-bot simulation;
-- browser play surface;
-- basic card/deck editor;
-- documentation for adding a card and adding a format.
+- Configurable serializable rulesets, asymmetric decklists, and deterministic scenario setup.
+- Declarative trigger/condition/target/effect card definitions with runtime validation.
+- Player-safe projections, legal command generation, stable replay envelopes, and state hashes.
+- Ember Duel: Foundry Set with 40 original cards, two factions, neutrals, and 20-card starters.
+- Combat keywords, triggers, control statuses, stat changes, counters, tokens, attachments, secrets, discard, exile, resurrection, fatigue, area/random/adjacent effects, and choices.
+- Playable Verdant AI and seeded batch balance simulation.
+- Visual/JSON card creator, deck builder, format editor, persistence, and JSON import/export.
+- Integrated rules and five deterministic playable lessons.
+- Responsive React UI, browser E2E coverage, and one npm run verify:mvp gate.
+- A second game, Quick Sparks, using a different ruleset without core changes.
 
-## Non-Goals
+## Product Boundary
 
-- full Magic/Yu-Gi-Oh compatibility;
-- online ranked ladder;
-- marketplace/economy;
-- polished card art pipeline;
-- every possible timing edge case.
-
-## MVP Demo
-
-**Ember Duel**:
-
-- 2 players;
-- 12-card starter decks;
-- life/base total;
-- energy resource;
-- units and tactics;
-- simple attack step;
-- clear win condition.
+The repository is a complete local reference game and creator foundation. Hosted accounts, online matchmaking, a marketplace, economy, and production card-art pipelines are separate product phases.

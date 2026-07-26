@@ -1,10 +1,29 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/schema" },
-    { "path": "./packages/effects" },
-    { "path": "./packages/simulator" },
-    { "path": "./packages/app" }
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/ai"
+    },
+    {
+      "path": "./packages/schema"
+    },
+    {
+      "path": "./packages/effects"
+    },
+    {
+      "path": "./packages/simulator"
+    },
+    {
+      "path": "./games/ember-foundry"
+    },
+    {
+      "path": "./packages/app"
+    },
+    {
+      "path": "./games/quick-sparks"
+    }
   ]
 }

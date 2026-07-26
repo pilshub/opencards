@@ -1,11 +1,19 @@
-# Runbook: Add a card
+# Runbook: Add A Card
 
-**Status:** TBD. Phase 2 writes the data contract; Phase 4 closes the loop with the effect engine. This runbook will document the data-only workflow once those phases ship.
+Cards are data. A normal card addition must not modify packages/core.
 
-Expected outline (to be filled in):
+1. Add a CardDefinition to the game package or create one in OpenCards Studio.
+2. Use a stable lowercase kebab-case kind, a non-empty name, type, energy cost, and unit stats when applicable.
+3. Compose behavior from effects, abilities, conditions, keywords, and target selectors.
+4. Validate the database with validateCardDatabase.
+5. Convert definitions through cardDefinitionToSpec; do not write a game-local partial mapper.
+6. Add the card to a legal deck or export/import it through the Deck surface.
+7. Add a focused behavior test for every new mechanic combination.
+8. Run:
 
-1. Add the card definition to the active card database JSON.
-2. Run schema validation (`npm run test --workspace=@opencards/schema`).
-3. Run the runtime validator with the deck the card belongs to.
-4. Add or update a replay fixture if behavior changed.
-5. Confirm `npm run check` is green.
+   npm test --workspace=@opencards/schema
+   npm test --workspace=@opencards/core
+   npm test --workspace=@opencards/ember-foundry
+   npm run verify:mvp
+
+If the card needs an operation that is not in V1_OPERATIONS, follow add-an-effect-op.md and add the operation generically with schema, engine, replay, hidden-information, and editor coverage.

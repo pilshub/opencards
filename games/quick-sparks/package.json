@@ -1,0 +1,24 @@
+{
+  "name": "@opencards/quick-sparks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@opencards/core": "*"
+  },
+  "devDependencies": {
+    "@opencards/ai": "*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-strip-types ../../scripts/run-vitest-package.mjs"
+  }
+}

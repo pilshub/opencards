@@ -159,6 +159,27 @@ describe('@opencards/simulator harness', () => {
     expect(DEFAULT_MAX_COMMANDS).toBe(500);
   });
 
+  it('rejects malformed setup, invalid ranges, and illegal bot output', () => {
+    expect(() =>
+      runMatch({ ...unitFixtureSetup, players: [p1] }, greedyDamagePolicy, greedyDamagePolicy, 1),
+    ).toThrow(/exactly two/);
+
+    const illegalPolicy: BotPolicy = (_state, _player, rng) => ({
+      command: { type: 'endTurn', player: p2 },
+      rng,
+    });
+    expect(() => runMatch(unitFixtureSetup, illegalPolicy, greedyDamagePolicy, 1)).toThrow(
+      /illegal command/,
+    );
+
+    expect(() =>
+      runMatches(unitFixtureSetup, greedyDamagePolicy, greedyDamagePolicy, 0, -1),
+    ).toThrow(/non-negative integer/);
+    expect(() =>
+      runMatches(unitFixtureSetup, greedyDamagePolicy, greedyDamagePolicy, 0, 1.5),
+    ).toThrow(/non-negative integer/);
+  });
+
   it('summarizes outcomes, lengths, and win rates over a seed range', () => {
     const series = runMatches(unitFixtureSetup, greedyDamagePolicy, greedyDamagePolicy, 0, 4);
 

@@ -5,17 +5,17 @@ import { DEFAULT_FORMAT, validateFormat } from '@opencards/schema';
 const LS_KEY = 'opencards.format';
 
 /** Load a saved GameFormat from localStorage. Falls back to DEFAULT_FORMAT if missing or corrupt. */
-function loadSavedFormat(): GameFormat {
-  if (typeof window === 'undefined') return DEFAULT_FORMAT;
+function loadSavedFormat(defaultFormat: GameFormat): GameFormat {
+  if (typeof window === 'undefined') return defaultFormat;
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return DEFAULT_FORMAT;
+    if (!raw) return defaultFormat;
     const parsed = JSON.parse(raw) as unknown;
     const result = validateFormat(parsed);
-    if (!result.ok) return DEFAULT_FORMAT;
+    if (!result.ok) return defaultFormat;
     return parsed as GameFormat;
   } catch {
-    return DEFAULT_FORMAT;
+    return defaultFormat;
   }
 }
 
@@ -25,24 +25,30 @@ function persistFormat(fmt: GameFormat): void {
   localStorage.setItem(LS_KEY, JSON.stringify(fmt));
 }
 
-export function FormatEditor(): JSX.Element {
-  const [name, setName] = useState(DEFAULT_FORMAT.name);
-  const [deckSize, setDeckSize] = useState(DEFAULT_FORMAT.deckSize);
-  const [openingHand, setOpeningHand] = useState(DEFAULT_FORMAT.openingHandSize);
-  const [copyLimit, setCopyLimit] = useState(DEFAULT_FORMAT.copyLimit);
-  const [baseTotal, setBaseTotal] = useState(DEFAULT_FORMAT.baseTotal);
-  const [startingEnergy, setStartingEnergy] = useState(DEFAULT_FORMAT.startingEnergy);
+export function FormatEditor({
+  defaultFormat = DEFAULT_FORMAT,
+}: {
+  readonly defaultFormat?: GameFormat;
+}): JSX.Element {
+  const [name, setName] = useState(defaultFormat.name);
+  const [deckSize, setDeckSize] = useState(defaultFormat.deckSize);
+  const [openingHand, setOpeningHand] = useState(defaultFormat.openingHandSize);
+  const [copyLimit, setCopyLimit] = useState(defaultFormat.copyLimit);
+  const [baseTotal, setBaseTotal] = useState(defaultFormat.baseTotal);
+  const [startingEnergy, setStartingEnergy] = useState(defaultFormat.startingEnergy);
+  const [ruleset, setRuleset] = useState(defaultFormat.ruleset);
 
   // Load from localStorage on mount
   useEffect(() => {
-    const saved = loadSavedFormat();
+    const saved = loadSavedFormat(defaultFormat);
     setName(saved.name);
     setDeckSize(saved.deckSize);
     setOpeningHand(saved.openingHandSize);
     setCopyLimit(saved.copyLimit);
     setBaseTotal(saved.baseTotal);
     setStartingEnergy(saved.startingEnergy);
-  }, []);
+    setRuleset(saved.ruleset);
+  }, [defaultFormat]);
 
   const current: unknown = {
     name,
@@ -51,6 +57,7 @@ export function FormatEditor(): JSX.Element {
     copyLimit,
     baseTotal,
     startingEnergy,
+    ...(ruleset === undefined ? {} : { ruleset }),
   };
   const validation = validateFormat(current);
 
@@ -130,8 +137,8 @@ export function FormatEditor(): JSX.Element {
         </label>
 
         <p className="text-xs text-zinc-500">
-          Base total and Starting energy are reserved for Phase 3 — the engine does not consume them
-          yet.
+          Saving preserves the active phase order, board limits, energy progression, and fatigue
+          rules.
         </p>
 
         {validation.ok ? (

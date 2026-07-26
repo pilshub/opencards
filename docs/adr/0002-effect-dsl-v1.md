@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-05-17.
+Accepted for the original slice on 2026-05-17. Superseded for the Foundry expansion by ADR-0009.
 
 ## Context
 

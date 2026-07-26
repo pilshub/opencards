@@ -1,17 +1,20 @@
 # @opencards/app
 
-Browser play and editor surface for OpenCards.
+The React product surface for OpenCards Foundry.
 
-**Status:** Phase 0 stub. Real implementation begins in Phase 5 once the deterministic core (Phases 1–3) and effect engine (Phase 4) are in place.
+## Surfaces
 
-**Locked stack:** Vite + React 18 + TypeScript strict + Tailwind + Zustand + Framer Motion + Playwright. See [docs/adr/0001-frontend-stack.md](../../docs/adr/0001-frontend-stack.md).
+- Play: Ember Duel against the Verdant AI, deterministic scenarios, replay export/import, logs, and perspective-safe board views.
+- Deck: deck construction, live legality, copy counts, local persistence, and JSON import/export.
+- Create: visual card authoring plus advanced JSON for nested conditions, choices, secrets, attachments, zones, and statuses.
+- Rules: integrated Foundry rulebook, mechanics glossary, and format editor.
 
-**Architectural rules** (applied as soon as code lands here):
+The UI reads only viewMatch(handle) and legalCommands(handle). Every action button is backed by a legal engine command; opponent hidden zones remain masked.
 
-- UI reads only `engine.getView(playerId)` and `engine.getLegalCommands(playerId)`.
-- Action affordances render from the legal commands list. No invented legality.
-- Target selection is an explicit state machine.
-- Animations trigger from engine events, not from state diffs.
-- Hash-match verification is a visible UI element.
+## Development
 
-Update [packages/app/README.md](README.md) when the Phase 5 scaffold lands.
+    npm run dev --workspace=@opencards/app -- --host 127.0.0.1 --port 5180
+    npm test --workspace=@opencards/app
+    npm run test:e2e --workspace=@opencards/app
+
+The root npm run verify:mvp includes the app build, static smoke, and seven Playwright product flows.

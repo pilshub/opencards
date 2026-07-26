@@ -1,12 +1,10 @@
-# Runbook: Debug a replay-mismatch
+# Runbook: Debug A Replay Mismatch
 
-**Status:** TBD. The full workflow lands with Phase 7. Skeleton below.
-
-Expected outline (to be filled in):
-
-1. Reproduce locally with the failing seed: `npm run verify:replay -- --seed=<N> --fixture=<path>`.
-2. Diff the recorded `finalStateHash` against the recomputed one.
-3. Bisect: run the fixture up to command `i` and compare projected views.
-4. Identify whether the mismatch came from card-data changes, RNG changes, or interpreter changes.
-5. Decide: bump the fixture (intentional change, recorded in commit) or fix the regression.
-6. Confirm `npm run check` is green.
+1. Reproduce with npm run verify:replay and record the failing fixture, seed, command index, expected hash, and actual hash.
+2. Replay only that envelope through replayEnvelope; do not inspect UI-derived state.
+3. Compare setupOpts first: cards, decklists, ruleset, scenario, seed, and player order are all hash inputs.
+4. Apply commands one at a time and compare canonical hashes to locate the first divergent transition.
+5. Inspect emitted events and RNG state at that transition. Never replace seeded randomness with Math.random.
+6. Confirm nested effects, choices, secrets, and triggered abilities were converted through cardDefinitionToSpec.
+7. If behavior intentionally changed, update the reviewed fixture and explain the contract change. Do not merely overwrite expected hashes.
+8. Run npm run verify:hidden-info and npm run verify:mvp before merging.

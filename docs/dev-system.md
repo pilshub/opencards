@@ -18,7 +18,7 @@ A development system scores 100/10 when:
 
 ### 1. Workspace structure
 
-- npm workspaces. Five packages: `core`, `schema`, `effects`, `simulator`, `app`.
+- npm workspaces for core, schema, effects, simulator, AI, app, Ember Foundry, and Quick Sparks.
 - Root `tsconfig.base.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`.
 - Per-package `tsconfig.json` extends the base and declares `references` for internal deps.
 - Per-package `package.json` declares its own `exports`, `types`, `scripts`.
@@ -26,7 +26,9 @@ A development system scores 100/10 when:
 
 ### 2. Quality gate
 
-Single command: `npm run check`. ADR-0004 defines the Phase 0 deferral of replay and hidden-information checks.
+Single full-confidence command: `npm run verify:mvp`. The inner package gate is
+`npm run check`. ADR-0004 defines the historical Phase 0 deferral of replay and
+hidden-information checks.
 
 Phase 0 gate runs in order:
 
@@ -48,8 +50,9 @@ Phase 1+ gate runs in order:
 
 Whole gate finishes under five minutes on a dev laptop. Each step has a timeout.
 
-Once Phase 7 lands, `verify:mvp` will run `check` + simulator batch + app build + Playwright smoke + pixel snapshot diff; CI and release will use it.
-`verify:mvp` is itself a deferred command until Phase 7; running it today fails fast by design, following the ADR-0004 deferral pattern.
+Phase 7 shipped `verify:mvp`; it now runs schema/runtime validation, `check`,
+the simulator suite, 400-match balance check, app builds, browser smoke, and Playwright E2E. CI and release use
+it as the MVP confidence command.
 
 ### 3. Test pyramid
 
@@ -87,7 +90,7 @@ A first-class test type, not an afterthought.
 
 Automated, not aspirational.
 
-- Engine: `getView(playerId)` is the only outward read path from `core`. A lint rule forbids exporting raw `state` from `core/src/index.ts`.
+- Engine: `viewMatch(handle)` is the outward facade read path from `core`. A lint rule forbids exporting raw `state` from `core/src/index.ts`.
 - Engine test: for every fixture, snapshot `getView(p1)` and `getView(p2)`. Assert opponent hand and deck identities are masked.
 - App test: Playwright applies a command, dumps `document.body.innerHTML`, and asserts opponent card kinds do not appear.
 

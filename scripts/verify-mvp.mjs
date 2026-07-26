@@ -18,6 +18,11 @@ const steps = [
     args: ['run', 'test', '--workspace=@opencards/simulator'],
   },
   {
+    name: 'foundry balance',
+    command: 'npm',
+    args: ['run', 'verify:balance'],
+  },
+  {
     name: 'build:web',
     command: 'npm',
     args: ['run', 'build:web'],
@@ -26,6 +31,11 @@ const steps = [
     name: 'verify:app',
     command: 'npm',
     args: ['run', 'verify:app'],
+  },
+  {
+    name: 'browser end-to-end suite',
+    command: 'npm',
+    args: ['run', 'test:e2e', '--workspace=@opencards/app'],
   },
 ];
 

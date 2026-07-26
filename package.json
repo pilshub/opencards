@@ -12,7 +12,10 @@
     "packages/schema",
     "packages/effects",
     "packages/simulator",
-    "packages/app"
+    "packages/app",
+    "packages/ai",
+    "games/ember-foundry",
+    "games/quick-sparks"
   ],
   "scripts": {
     "typecheck": "tsc -b",
@@ -32,7 +35,8 @@
     "verify:coverage-overall": "node scripts/check-overall-coverage.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run verify:coverage-overall && npm run verify:replay && npm run verify:hidden-info",
     "verify:mvp": "node scripts/verify-mvp.mjs",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "verify:balance": "node scripts/verify-foundry-balance.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [

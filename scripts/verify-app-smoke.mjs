@@ -41,7 +41,10 @@ async function verifyStaticBuild() {
   const requiredFiles = [
     'index.html',
     'assets/styles.css',
+    'assets/foundry-board.png',
     'modules/app/main.js',
+    'modules/ai/index.js',
+    'modules/ember-foundry/index.js',
     'modules/core/index.js',
     'modules/schema/index.js',
     'modules/effects/index.js',
@@ -80,8 +83,8 @@ async function runBrowserSmoke() {
   try {
     const page = await browser.newPage();
     await page.goto(server.url);
-    await page.getByRole('button', { name: 'New Game' }).waitFor({ state: 'visible' });
-    await page.getByRole('button', { name: 'New Game' }).click();
+    await page.getByTestId('start-duel').waitFor({ state: 'visible' });
+    await page.getByTestId('start-duel').click();
     const legalCountText = await page.getByTestId('legal-commands-count').textContent();
     const legalCount = Number(legalCountText);
 

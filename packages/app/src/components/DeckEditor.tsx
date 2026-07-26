@@ -15,6 +15,7 @@ const FORMAT_KEY = 'opencards.format';
 
 type DeckEditorProps = {
   readonly builtinCards: readonly CardDefinition[];
+  readonly defaultFormat?: GameFormat;
 };
 
 function loadSavedCards(): CardDefinition[] {
@@ -45,17 +46,17 @@ function loadSavedDeck(): string[] {
   }
 }
 
-function loadSavedFormat(): GameFormat {
-  if (typeof window === 'undefined') return DEFAULT_FORMAT;
+function loadSavedFormat(defaultFormat: GameFormat): GameFormat {
+  if (typeof window === 'undefined') return defaultFormat;
   try {
     const raw = localStorage.getItem(FORMAT_KEY);
-    if (!raw) return DEFAULT_FORMAT;
+    if (!raw) return defaultFormat;
     const parsed = JSON.parse(raw) as unknown;
     const result = validateFormat(parsed);
-    if (!result.ok) return DEFAULT_FORMAT;
+    if (!result.ok) return defaultFormat;
     return parsed as GameFormat;
   } catch {
-    return DEFAULT_FORMAT;
+    return defaultFormat;
   }
 }
 
@@ -106,9 +107,12 @@ function formatIssues(
   return issues.map((issue) => `${issue.code}: ${issue.message}`).join('\n');
 }
 
-export function DeckEditor({ builtinCards }: DeckEditorProps): JSX.Element {
+export function DeckEditor({
+  builtinCards,
+  defaultFormat = DEFAULT_FORMAT,
+}: DeckEditorProps): JSX.Element {
   const [customCards, setCustomCards] = useState<CardDefinition[]>(() => loadSavedCards());
-  const [format, setFormat] = useState<GameFormat>(() => loadSavedFormat());
+  const [format, setFormat] = useState<GameFormat>(() => loadSavedFormat(defaultFormat));
   const [decklist, setDecklist] = useState<string[]>(() => loadSavedDeck());
   const [exportText, setExportText] = useState('');
   const [importText, setImportText] = useState('');
