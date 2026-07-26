@@ -1,5 +1,8 @@
 import { motion, useMotionValue, useTransform } from 'framer-motion';
 import type { MouseEvent } from 'react';
+import artManifest from '../art-manifest.js';
+
+const ART_KINDS = new Set<string>(artManifest);
 
 type CardTheme = {
   readonly glyph: string;
@@ -119,6 +122,7 @@ function CardFront({
 }): JSX.Element {
   const theme = resolveTheme(kind, nameOverride, typeOverride, costOverride);
   const isKnown = cardThemes[kind] !== undefined;
+  const hasArt = ART_KINDS.has(kind);
   const colors: CustomPalette = isKnown
     ? (palette[theme.accentColor] as CustomPalette)
     : resolveCustomPalette(kind);
@@ -159,7 +163,7 @@ function CardFront({
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
     >
-      <CardFrontSvg colors={colors} theme={theme} kind={kind} />
+      <CardFrontSvg colors={colors} theme={theme} kind={kind} hasArt={hasArt} />
     </motion.div>
   );
 }
@@ -243,10 +247,12 @@ function CardFrontSvg({
   colors,
   theme,
   kind,
+  hasArt,
 }: {
   readonly colors: CustomPalette;
   readonly theme: CardTheme;
   readonly kind: string;
+  readonly hasArt: boolean;
 }): JSX.Element {
   const gradientId = `front-${cardThemes[kind] === undefined ? `custom-${String(kindToHue(kind))}` : theme.accentColor}`;
 
@@ -262,6 +268,11 @@ function CardFrontSvg({
           <stop offset="0%" stopColor={colors.mid} stopOpacity="0.85" />
           <stop offset="100%" stopColor={colors.deep} />
         </radialGradient>
+        {hasArt ? (
+          <clipPath id={`${gradientId}-art-clip`}>
+            <rect width="92" height="86" x="14" y="43" rx="6" />
+          </clipPath>
+        ) : null}
       </defs>
       <rect width="118" height="178" x="1" y="1" rx="11" fill={`url(#${gradientId})`} />
       <rect width="110" height="170" x="5" y="5" rx="8" fill="#111113" />
@@ -290,6 +301,18 @@ function CardFrontSvg({
         {theme.cost}
       </text>
       <rect width="92" height="86" x="14" y="43" rx="6" fill={`url(#${gradientId}-art)`} />
+      {hasArt ? (
+        <image
+          aria-hidden="true"
+          clipPath={`url(#${gradientId}-art-clip)`}
+          height="86"
+          href={`/art/${encodeURIComponent(kind)}.webp`}
+          preserveAspectRatio="xMidYMid slice"
+          width="92"
+          x="14"
+          y="43"
+        />
+      ) : null}
       <Pattern theme={theme} colors={colors} />
       <text
         fill="#fff7ed"

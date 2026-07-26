@@ -1,0 +1,43 @@
+{
+  "_comment": "Subject phrases for card art generation. The generator wraps each subject in the shared style formula (see scripts/generate-card-art.mjs). Keep subjects concrete and faithful to the card's mechanics: guard = defensive stance, poisonous = venom, lifesteal = draining, stealth = concealment.",
+  "_style": "Illustration ONLY, no text, no words, no letters, no numbers, no card frame, no border, no UI, no stat boxes, no signature, no watermark. Full-bleed painterly fantasy artwork filling the entire canvas. Rich oil-painting brushwork, dramatic cinematic lighting, strong readable silhouette, centered composition, dark atmospheric background.",
+  "subjects": {
+    "cinder-initiate": "a young ember mage apprentice channeling a swirling orange fire orb in cupped hands, ash and sparks drifting, dark stone forge hall, warm rim light",
+    "spark-runner": "a lithe courier sprinting through a foundry corridor trailing a comet tail of sparks, motion blur, molten orange light streaking past",
+    "ashen-guard": "a heavy armoured sentinel in soot-blackened plate braced behind a broad tower shield, embers glowing in the seams of the armour, defensive stance",
+    "flame-squire": "a determined young squire raising a burning shortsword, flames licking up the blade, firelit courtyard of a forge keep",
+    "furnace-adept": "a robed adept reaching into the mouth of a roaring blast furnace, molten light washing over their face, heat shimmer and floating cinders",
+    "ember-medic": "a battlefield healer cradling a warm glowing ember that knits a wounded soldier's arm, gentle golden light against smoke",
+    "coalback-brute": "a hulking brute with cracked coal-black hide glowing red between the plates, knuckles dragging, hunched and menacing in a smoky pit",
+    "phoenix-whelp": "a small fierce phoenix chick with molten gold plumage spreading its wings for the first time, sparks scattering from the feathers",
+    "scorchblade": "a masked duelist mid-lunge with twin scorching scimitars leaving searing orange arcs through the air, ash swirling",
+    "molten-colossus": "a colossal giant built of fractured obsidian slabs with rivers of lava flowing through its body, towering over a ruined foundry, low angle",
+    "searing-pact": "a blazing sigil of sacrifice burning in mid-air over an open palm, blood-orange flame curling into a binding rune, dark ritual chamber",
+    "kindled-resolve": "a lone warrior silhouetted against a rising wall of golden flame, fists clenched, embers spiralling upward around them",
+
+    "mossling": "a tiny round moss-covered forest sprite with bright curious eyes peeking from between fern fronds, dappled green light",
+    "thorn-scout": "a nimble hooded ranger crouched low among brambles, drawing a thorn-tipped arrow, shafts of green forest light",
+    "grove-keeper": "a serene bark-skinned guardian with antler-like branches standing watch before an ancient grove, moss and fireflies",
+    "bloom-healer": "a gentle druid healer coaxing luminous white blossoms from a wounded creature's side, soft green healing glow",
+    "venom-seed": "a pulsing black-green seed pod dripping luminous venom, barbed husk splitting open, sickly chartreuse glow in dark undergrowth",
+    "vine-charger": "a boar-like beast wrapped in thick thorned vines charging headlong through undergrowth, dirt and leaves exploding outward",
+    "lifebloom-druid": "an elder druid with flowering hair raising both hands as verdant life-light blooms across a dying meadow",
+    "barkshield-guardian": "a broad treant guardian raising an enormous slab of layered bark as a shield, roots gripping the earth, defensive stance",
+    "wildcaller": "a feral shaman with a horn of woven antler summoning shapes of beasts out of swirling green mist",
+    "ancient-stag": "a majestic ancient stag with moss-draped antlers and glowing emerald eyes standing in a misty primeval forest, shafts of light",
+    "root-titan": "a titanic humanoid formed of knotted roots and earth rising from the forest floor, trees clinging to its shoulders, low angle",
+    "natural-remedy": "a clay bowl of glowing herbal brew on a mossy stone, luminous petals and steam curling upward, soft green light",
+    "seed-cache": "a hollow log cache spilling glowing seeds of many colours onto forest loam, warm bioluminescence",
+    "verdant-surge": "an explosive surge of green growth bursting upward through cracked stone, vines and blossoms erupting in a wave of light",
+    "canopy-wrath": "the forest canopy itself lashing downward in fury, enormous branches whipping through the air amid a storm of torn leaves",
+
+    "clockwork-page": "a small brass clockwork servant with exposed gears and a single glowing lens eye, carrying a rolled scroll, workshop lamplight",
+    "iron-courier": "a swift iron automaton messenger racing on articulated legs, steam venting from its shoulders, cobbled city street at dusk",
+    "gate-warden": "a massive bronze gate-guardian automaton with a slab shield and glowing runic core planted immovably before a great door",
+    "aegis-construct": "a crystalline guardian construct projecting a shimmering hexagonal energy barrier, pale blue light, defensive posture",
+    "glass-assassin": "a near-invisible assassin of living glass refracting the room behind it, only edges and a glint of blade visible, shadowed corridor",
+    "arcane-insight": "an open floating tome pouring streams of luminous script and constellations into the air, deep indigo arcane light",
+    "null-pulse": "a silent shockwave of colourless void energy annihilating arcane runes mid-air, magic unravelling into grey ash",
+    "wandering-giant": "an enormous weathered stone wanderer crossing a windswept plain at dusk, cloak of chains, distant tiny travellers for scale"
+  }
+}
