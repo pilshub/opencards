@@ -1,12 +1,5 @@
-import { apply, validateTarget } from './dispatcher.js';
-import type {
-  CardInstanceId,
-  Command,
-  PlayerId,
-  StackItem,
-  State,
-  TargetSelector,
-} from './types.js';
+import { apply, requiredTargetSelectors, validateTarget } from './dispatcher.js';
+import type { CardInstanceId, Command, PlayerId, StackItem, State } from './types.js';
 
 /** Enumerate legal commands by filtering deterministic candidates through apply(). */
 export function getLegalCommands(state: State, player: PlayerId): Command[] {
@@ -94,25 +87,4 @@ function targetCandidates(
   return candidates.filter((target) =>
     selectors.every((selector) => validateTarget(state, item.controller, selector, target)),
   );
-}
-
-function requiredTargetSelectors(item: StackItem): readonly TargetSelector[] {
-  const selectors: TargetSelector[] = [];
-
-  for (const effect of item.effects) {
-    if (
-      effect.target === undefined ||
-      effect.target === 'self' ||
-      effect.op === 'damageAll' ||
-      effect.op === 'randomDamage'
-    ) {
-      continue;
-    }
-
-    if (!selectors.includes(effect.target)) {
-      selectors.push(effect.target);
-    }
-  }
-
-  return selectors;
 }

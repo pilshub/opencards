@@ -1184,7 +1184,7 @@ function topStackItem(state: State): StackItem | undefined {
   return state.stack[state.stack.length - 1];
 }
 
-function requiredTargetSelectors(item: StackItem): readonly TargetSelector[] {
+export function requiredTargetSelectors(item: StackItem): readonly TargetSelector[] {
   const selectors: TargetSelector[] = [];
 
   for (const effect of item.effects) {
