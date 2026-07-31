@@ -1768,3 +1768,26 @@ describe('@opencards/app Online navigation', () => {
     expect(screen.queryByTestId('online-server-url')).toBeNull();
   });
 });
+
+describe('@opencards/app Draft navigation', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('nav-draft exists and switches appView to show the Draft form', () => {
+    render(createElement(App));
+
+    expect(screen.getByTestId('nav-draft')).toBeTruthy();
+    expect(screen.queryByTestId('draft')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-draft'));
+
+    expect(screen.getByTestId('draft')).toBeTruthy();
+    expect(screen.getByTestId('draft-start')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-play'));
+    expect(screen.getByRole('button', { name: 'New Game' })).toBeTruthy();
+    expect(screen.queryByTestId('draft')).toBeNull();
+  });
+});

@@ -42,12 +42,13 @@ import { chooseBotCommand } from '@opencards/ai';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
 import { DeckEditor } from './components/DeckEditor.js';
+import { Draft } from './components/Draft.js';
 import { FormatEditor } from './components/FormatEditor.js';
 import { OnlinePlay } from './components/OnlinePlay.js';
 
 // ── Built-in card definitions ───────────────────────────────────────────────
 
-const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = Object.fromEntries(
+export const BUILTIN_DEFINITIONS: Record<string, CardDefinition> = Object.fromEntries(
   FOUNDRY_CARDS.map((card) => [card.kind, card]),
 );
 
@@ -121,7 +122,7 @@ export function buildCardRegistry(useCustom: boolean): Map<string, CardDefinitio
   return registry;
 }
 
-type AppView = 'play' | 'deck' | 'create' | 'rules' | 'online';
+type AppView = 'play' | 'deck' | 'create' | 'rules' | 'online' | 'draft';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -638,6 +639,18 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                 >
                   Online
                 </button>
+                <button
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'draft'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-draft"
+                  type="button"
+                  onClick={() => setAppView('draft')}
+                >
+                  Draft
+                </button>
               </nav>
               <div
                 className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
@@ -661,6 +674,10 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
           {appView === 'rules' ? <RulesView /> : null}
 
           {appView === 'online' ? <OnlinePlay /> : null}
+
+          {appView === 'draft' ? (
+            <Draft format={activeFormat} pool={Object.values(BUILTIN_DEFINITIONS)} />
+          ) : null}
 
           {appView === 'play' ? (
             <>

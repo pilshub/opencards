@@ -65,7 +65,7 @@ function persistCards(cards: readonly CardDefinition[]): void {
   localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(cards));
 }
 
-function persistDeck(decklist: readonly string[]): void {
+export function persistDeck(decklist: readonly string[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(DECK_KEY, JSON.stringify(decklist));
 }
