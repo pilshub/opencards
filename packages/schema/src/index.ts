@@ -56,6 +56,8 @@ export const ISSUE_CODES = Object.freeze({
   INVALID_KEYWORD: 'OC-0024',
   /** triggered ability timing is unsupported */
   INVALID_ABILITY_TRIGGER: 'OC-0025',
+  /** draft pick targets a kind outside the current choices or a completed draft */
+  INVALID_DRAFT_PICK: 'OC-0026',
 } as const);
 
 /** Stable validator issue code emitted by schema checks. */
@@ -90,6 +92,10 @@ export { validateFormat } from './format.js';
 export type { DecklistValidationContext } from './decklist.js';
 /** Validate a decklist and hash a valid ordered decklist reproducibly. */
 export { hashDecklist, validateDecklist } from './decklist.js';
+/** Deterministic draft engine state and current choice types. */
+export type { DraftState, DraftChoice } from './draft.js';
+/** Deterministic draft engine: start a draft, read choices, pick, finalize. */
+export { startDraft, currentChoice, pick, isDraftComplete, finalizeDecklist } from './draft.js';
 /** Serializable ruleset contract and runtime validator. */
 export type { Ruleset } from '@opencards/core';
 export { validateRuleset } from './ruleset.js';
