@@ -136,7 +136,7 @@ export function FormatEditor({
           />
         </label>
 
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           Saving preserves the active phase order, board limits, energy progression, and fatigue
           rules.
         </p>

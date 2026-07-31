@@ -285,7 +285,7 @@ export function DeckEditor({
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <div>
                   <h3 className="truncate text-sm font-semibold text-zinc-100">{card.name}</h3>
-                  <p className="font-mono text-xs text-zinc-500">{card.kind}</p>
+                  <p className="font-mono text-xs text-zinc-400">{card.kind}</p>
                 </div>
                 <p className="text-sm text-zinc-300" data-testid={`deck-copies-${card.kind}`}>
                   Copies: {copies}

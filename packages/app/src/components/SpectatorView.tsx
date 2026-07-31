@@ -142,7 +142,7 @@ function SpectatorPlayer({ player }: { player: OpponentPlayerView }): JSX.Elemen
 function ZoneBadge({ label, value }: { label: string; value: number }): JSX.Element {
   return (
     <div className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2">
-      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-xs text-zinc-400">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
   );
@@ -158,7 +158,7 @@ function SpectatorStack({ stack }: { stack: readonly StackItem[] }): JSX.Element
         <h2 className="text-sm font-semibold text-zinc-100">Stack</h2>
       </div>
       {stack.length === 0 ? (
-        <p className="text-xs text-zinc-500">Stack empty</p>
+        <p className="text-xs text-zinc-400">Stack empty</p>
       ) : (
         <ol className="grid gap-2">
           {stack.map((item) => (

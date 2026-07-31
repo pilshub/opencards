@@ -195,7 +195,7 @@ export function OnlinePlay(): JSX.Element {
     return (
       <section className="flex flex-col gap-3" data-testid="online-play">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-zinc-500" data-testid="online-note">
+          <p className="text-xs text-zinc-400" data-testid="online-note">
             Live event history is not wired up yet for online play.
           </p>
           <button
@@ -235,7 +235,7 @@ export function OnlinePlay(): JSX.Element {
     return (
       <section className="flex flex-col gap-3" data-testid="online-play">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-zinc-500" data-testid="online-note">
+          <p className="text-xs text-zinc-400" data-testid="online-note">
             Watching this match — read-only, no commands.
           </p>
           <button

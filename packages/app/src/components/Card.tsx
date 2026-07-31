@@ -89,6 +89,7 @@ export function Card(props: CardProps): JSX.Element {
       <div
         className="oc-card-shell cursor-default select-none"
         data-testid={props.testId}
+        role="img"
         aria-label="Hidden card"
       >
         <CardBackSvg />

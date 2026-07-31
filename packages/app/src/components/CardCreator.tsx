@@ -198,7 +198,7 @@ export function CardCreator(): JSX.Element {
                   onChange={(event) => setJsonInput(event.currentTarget.value)}
                 />
               </label>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 Supports nested conditions, choice options, secrets, attachments, zones, status, and
                 custom parameters.
               </p>
@@ -291,7 +291,7 @@ export function CardCreator(): JSX.Element {
                   </button>
                 </div>
                 {effects.length === 0 ? (
-                  <p className="rounded border border-dashed border-white/10 p-4 text-sm text-zinc-500">
+                  <p className="rounded border border-dashed border-white/10 p-4 text-sm text-zinc-400">
                     No effects.
                   </p>
                 ) : null}

@@ -643,7 +643,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                 className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
                 title={currentHash}
               >
-                <span className="mr-2 text-zinc-500">hash</span>
+                <span className="mr-2 text-zinc-400">hash</span>
                 <span data-testid="state-hash">{shortHash(currentHash)}</span>
               </div>
             </div>
@@ -738,7 +738,7 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                     Export envelope
                   </button>
                 ) : null}
-                <p className="text-xs text-zinc-500 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
+                <p className="text-xs text-zinc-400 sm:pb-3">n new · r reset · 1/2 draw · v flip</p>
               </section>
 
               {exportedEnvelope ? (
@@ -1498,7 +1498,7 @@ function StackPanel({
         </div>
       ) : null}
       {stack.length === 0 ? (
-        <p className="text-xs text-zinc-500">Stack empty</p>
+        <p className="text-xs text-zinc-400">Stack empty</p>
       ) : (
         <ol className="grid gap-2">
           {stack.map((item) => (
@@ -1761,7 +1761,7 @@ function PlayerArea({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!isActive && !hasWinner ? (
-            <span className="text-xs text-zinc-500">Waiting for {activePlayer}</span>
+            <span className="text-xs text-zinc-400">Waiting for {activePlayer}</span>
           ) : null}
           <button
             aria-label="Draw card"
@@ -2012,6 +2012,7 @@ function FannedHand(props: FannedHandProps): JSX.Element {
       <ul
         className="flex min-h-[12.5rem] items-end justify-center overflow-x-auto overflow-y-visible px-8 pb-2 pt-6"
         data-testid={props.masked ? `opponent-${props.owner}` : `own-hand-${props.owner}`}
+        tabIndex={0}
       >
         {Array.from({ length: count }).map((_, index) => {
           const fan = fanTransform(index, count);
@@ -2254,7 +2255,7 @@ function CountBadge({
 }): JSX.Element {
   return (
     <div className="rounded border border-[color:var(--oc-border)] bg-zinc-950 px-3 py-2">
-      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-xs text-zinc-400">{label}</div>
       <div className="text-lg font-semibold" data-testid={testId}>
         {value}
       </div>

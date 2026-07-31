@@ -140,7 +140,7 @@ test('primary surfaces are keyboard reachable and expose names for visible contr
   await rulesTab.press('Enter');
   await expect(page.getByTestId('rules-view')).toBeVisible();
 
-  for (const testId of ['nav-play', 'nav-deck', 'nav-create', 'nav-rules']) {
+  for (const testId of ['nav-play', 'nav-deck', 'nav-create', 'nav-rules', 'nav-online']) {
     await page.getByTestId(testId).click();
     const missingNames = await page.evaluate(() =>
       Array.from(document.querySelectorAll('button, input, select, textarea'))
