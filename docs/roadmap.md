@@ -24,6 +24,10 @@ The original phases are complete and retained below as historical delivery conte
 
 npm run verify:mvp is the release gate.
 
+Since these phases shipped, the project has also added server-authoritative
+online play, spectator mode, and a draft format — see
+`docs/roadmap-horizon-2.md` for the Horizon 2 progress log.
+
 ## Development Principles
 
 - Determinism first: every setup, shuffle, draw, bot choice and replay must use seeded state.

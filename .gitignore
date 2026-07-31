@@ -18,3 +18,4 @@ Thumbs.db
 .codex-*-prompt.txt
 
 .vercel
+.env*.local

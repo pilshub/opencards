@@ -30,10 +30,17 @@ Use these facade calls as the adapter boundary:
   be written back into the exported envelope.
 
 Stable helpers also available at the root are `hashState`, `canonicalJson`,
-`CORE_VERSION`, `seedRng`, `nextRng`, `nextRangeRng`, and `fisherYates`.
+`CORE_VERSION`, `seedRng`, `nextRng`, `nextRangeRng`, `fisherYates`, the
+built-in rulesets `CLASSIC_RULESET` and `FOUNDRY_RULESET`, and `defineRuleset`
+for constructing a custom ruleset. `legalCommands` and `viewMatch` reflect the
+active ruleset's mechanics — keywords, triggered abilities
+(`onPlay`/`onDeath`/`onAttack`), and the stack — so the host never needs its own
+legality logic.
 
-Do not import `@opencards/core/internal` from an OpenBoard adapter. Do not read
-raw `State`, call `apply`, call `replay`, or import source files by path.
+Do not import `@opencards/core/internal` from an OpenBoard adapter (the one
+intentional exception is `packages/server`, a trusted server process — see
+Multiplayer Note below). Do not read raw `State`, call `apply`, call `replay`,
+or import source files by path.
 
 ## Setup Input
 
@@ -67,6 +74,23 @@ battlefield, base, energy, phase, turn, winner, and stack are visible.
 
 The host must keep player handles scoped to the right seat. A handle is bound
 to one viewer; `viewMatch` and `legalCommands` do not accept a player override.
+
+## Multiplayer Note
+
+`packages/server` demonstrates a second valid embedding pattern for a host that
+wants to run matches server-side rather than embed the engine client-side. A
+trusted server process holds raw `State` directly through the
+`@opencards/core/internal` subpath (`createInitialState`/`apply`/
+`getLegalCommands`/`getView`/`getSpectatorView`) instead of the browser-safe
+`ViewerHandle` facade. That facade exists to keep browser-embedded state out of
+reach of devtools probing; a trusted process needs no such protection. One
+`MatchRoom` per match code broadcasts per-seat hidden-info-safe `PlayerView`s to
+the two real seats and a fully-masked `SpectatorView` (both hands hidden) to any
+number of read-only spectators. This remains an internal pattern — the public
+facade is unchanged and is still the only supported embedding contract for a
+browser host. The WebSocket wire protocol is documented in
+`packages/server/README.md`; this document covers the embedding contract, not
+the protocol.
 
 ## Replay Envelope
 
