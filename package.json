@@ -14,6 +14,7 @@
     "packages/simulator",
     "packages/app",
     "packages/ai",
+    "packages/server",
     "games/ember-foundry",
     "games/quick-sparks"
   ],
@@ -25,6 +26,7 @@
     "format:check": "prettier --check .",
     "dev": "echo 'Phase 5 wires Vite dev server' && exit 0",
     "build:web": "node scripts/build-app-static.mjs",
+    "dev:server": "node --experimental-strip-types packages/server/src/server.ts",
     "art": "node scripts/generate-card-art.mjs",
     "build:app": "npm run build --workspace=@opencards/core && npm run build:web",
     "test": "npm run --workspaces --if-present test",
