@@ -4,21 +4,26 @@ import type {
   Command,
   PlayerId,
   PlayerView,
+  SpectatorView,
   ValidationIssue,
 } from '@opencards/core';
 import { BoardView, buildCardRegistry } from '../App.js';
 import type { TargetCommand, TargetingState } from '../App.js';
+import { SpectatorView as SpectatorBoard } from './SpectatorView.js';
 
 type ServerMessage =
   | { type: 'joined'; player: PlayerId }
   | { type: 'view'; view: PlayerView; legal: Command[] }
   | { type: 'issues'; issues: ValidationIssue[] }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'spectating' }
+  | { type: 'spectatorView'; view: SpectatorView };
 
 type OnlineStatus =
   | { status: 'form' }
   | { status: 'connecting' }
   | { status: 'connected'; view: PlayerView; legal: Command[]; issues: ValidationIssue[] }
+  | { status: 'spectating'; view: SpectatorView }
   | { status: 'error'; message: string };
 
 const DEFAULT_SERVER_URL = 'ws://localhost:8787';
@@ -26,9 +31,12 @@ const DEFAULT_SERVER_URL = 'ws://localhost:8787';
 const P1 = 'p1' as PlayerId;
 const P2 = 'p2' as PlayerId;
 
+type OnlineMode = 'seat' | 'watch';
+
 export function OnlinePlay(): JSX.Element {
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [matchCode, setMatchCode] = useState('');
+  const [mode, setMode] = useState<OnlineMode>('seat');
   const [seat, setSeat] = useState<PlayerId>(P1);
   const [status, setStatus] = useState<OnlineStatus>({ status: 'form' });
   const [targeting, setTargeting] = useState<TargetingState>({ status: 'idle' });
@@ -63,7 +71,11 @@ export function OnlinePlay(): JSX.Element {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'join', matchCode, player: seat }));
+      if (mode === 'watch') {
+        socket.send(JSON.stringify({ type: 'watch', matchCode }));
+      } else {
+        socket.send(JSON.stringify({ type: 'join', matchCode, player: seat }));
+      }
     };
     socket.onmessage = (event: MessageEvent) => {
       handleServerMessage(event.data);
@@ -98,6 +110,8 @@ export function OnlinePlay(): JSX.Element {
     switch (message.type) {
       case 'joined':
         break;
+      case 'spectating':
+        break;
       case 'view':
         // The server is authoritative: a fresh view supersedes any in-flight
         // targeting draft, so reset to idle and clear stale issues.
@@ -108,6 +122,10 @@ export function OnlinePlay(): JSX.Element {
           legal: message.legal,
           issues: [],
         });
+        break;
+      case 'spectatorView':
+        setTargeting({ status: 'idle' });
+        setStatus({ status: 'spectating', view: message.view });
         break;
       case 'issues':
         setStatus((current) => {
@@ -213,6 +231,27 @@ export function OnlinePlay(): JSX.Element {
     );
   }
 
+  if (status.status === 'spectating') {
+    return (
+      <section className="flex flex-col gap-3" data-testid="online-play">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-zinc-500" data-testid="online-note">
+            Watching this match — read-only, no commands.
+          </p>
+          <button
+            className="rounded border border-[color:var(--oc-border)] px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+            data-testid="online-disconnect"
+            type="button"
+            onClick={disconnect}
+          >
+            Disconnect
+          </button>
+        </div>
+        <SpectatorBoard view={status.view} />
+      </section>
+    );
+  }
+
   return (
     <section className="rounded border border-white/10 bg-zinc-900 p-4" data-testid="online-play">
       {status.status === 'connecting' ? (
@@ -262,20 +301,34 @@ export function OnlinePlay(): JSX.Element {
         <div className="flex items-center gap-2">
           <span className="text-sm text-zinc-300">Seat</span>
           <button
-            className={seatButtonClass(seat === P1)}
+            className={seatButtonClass(mode === 'seat' && seat === P1)}
             data-testid="online-seat-p1"
             type="button"
-            onClick={() => setSeat(P1)}
+            onClick={() => {
+              setMode('seat');
+              setSeat(P1);
+            }}
           >
             p1
           </button>
           <button
-            className={seatButtonClass(seat === P2)}
+            className={seatButtonClass(mode === 'seat' && seat === P2)}
             data-testid="online-seat-p2"
             type="button"
-            onClick={() => setSeat(P2)}
+            onClick={() => {
+              setMode('seat');
+              setSeat(P2);
+            }}
           >
             p2
+          </button>
+          <button
+            className={seatButtonClass(mode === 'watch')}
+            data-testid="online-seat-spectator"
+            type="button"
+            onClick={() => setMode('watch')}
+          >
+            Watch
           </button>
         </div>
         <button

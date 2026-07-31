@@ -2,6 +2,7 @@ export type {
   CardInstance,
   EngineEffect,
   Player,
+  SpectatorView,
   StackItem,
   State,
   TargetSelector,
@@ -14,3 +15,4 @@ export { apply, validateTarget } from './dispatcher.js';
 export { getLegalCommands } from './legal.js';
 export { computeReplayHash, replay } from './replay.js';
 export { createInitialState } from './setup.js';
+export { getSpectatorView, getView } from './view.js';

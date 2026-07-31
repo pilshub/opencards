@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { CardInstanceId, PlayerId, PlayerView } from '@opencards/core';
+import type {
+  CardInstanceId,
+  PlayerId,
+  PlayerView,
+  SetupOpts,
+  SpectatorView,
+} from '@opencards/core';
 import { createFoundrySetup } from '@opencards/ember-foundry';
 import { MatchRoom, deriveSeedFromMatchCode, type RoomSend, type ServerMessage } from './index.js';
 
@@ -187,5 +193,104 @@ describe('@opencards/server MatchRoom', () => {
     expect(deriveSeedFromMatchCode('same-code')).toBe(deriveSeedFromMatchCode('same-code'));
     expect(Number.isInteger(deriveSeedFromMatchCode('test-room'))).toBe(true);
     expect(deriveSeedFromMatchCode('room-a')).not.toBe(deriveSeedFromMatchCode('room-b'));
+  });
+
+  it('watch delivers an immediate spectator view with both hands fully masked', () => {
+    const { room } = buildRoom();
+    room.join(p1);
+    room.join(p2);
+
+    const spectatorViews: SpectatorView[] = [];
+    const { unwatch } = room.watch((view) => spectatorViews.push(view));
+
+    expect(spectatorViews).toHaveLength(1);
+    const view = spectatorViews[0]!;
+    for (const seat of [p1, p2]) {
+      const playerView = view.players[seat]!;
+      expect(playerView.hand.length).toBeGreaterThan(0);
+      for (const entry of playerView.hand) {
+        expect(Object.keys(entry).sort()).toEqual(['masked']);
+        expect(Object.hasOwn(entry, 'id')).toBe(false);
+        expect(Object.hasOwn(entry, 'kind')).toBe(false);
+      }
+    }
+    unwatch();
+  });
+
+  it('pushes a fresh spectator view to registered spectators after a legal command', () => {
+    const { room } = buildRoom();
+    room.join(p1);
+    room.join(p2);
+
+    const spectatorViews: SpectatorView[] = [];
+    room.watch((view) => spectatorViews.push(view));
+
+    const handBefore = spectatorViews[0]!.players[p1]!.hand.length;
+    room.handleCommand(p1, { type: 'drawCard', player: p1 });
+
+    expect(spectatorViews).toHaveLength(2);
+    expect(spectatorViews[1]!.players[p1]!.hand.length).toBe(handBefore + 1);
+  });
+
+  it('unwatch stops further pushes to that callback', () => {
+    const { room } = buildRoom();
+    room.join(p1);
+    room.join(p2);
+
+    const spectatorViews: SpectatorView[] = [];
+    const { unwatch } = room.watch((view) => spectatorViews.push(view));
+    expect(spectatorViews).toHaveLength(1);
+
+    unwatch();
+    room.handleCommand(p1, { type: 'drawCard', player: p1 });
+
+    expect(spectatorViews).toHaveLength(1);
+  });
+
+  it('multiple simultaneous spectators all receive the same push on a command', () => {
+    const { room } = buildRoom();
+    room.join(p1);
+    room.join(p2);
+
+    const firstViews: SpectatorView[] = [];
+    const secondViews: SpectatorView[] = [];
+    room.watch((view) => firstViews.push(view));
+    room.watch((view) => secondViews.push(view));
+
+    room.handleCommand(p1, { type: 'drawCard', player: p1 });
+
+    expect(firstViews).toHaveLength(2);
+    expect(secondViews).toHaveLength(2);
+    expect(firstViews[1]).toEqual(secondViews[1]);
+  });
+
+  it('spectator view never leaks a hand-only kind into the serialized view', () => {
+    const handOnlyKinds = ['hand-only-a', 'hand-only-b', 'hand-only-c', 'hand-only-d'];
+    const setup: SetupOpts = {
+      seed: 7,
+      players: [p1, p2],
+      deckSize: 4,
+      openingHandSize: 4,
+      cardKinds: handOnlyKinds,
+      baseTotal: 20,
+      startingEnergy: 1,
+      cards: handOnlyKinds.map((kind) => ({
+        kind,
+        type: 'unit' as const,
+        cost: 1,
+        attack: 1,
+        health: 1,
+      })),
+    };
+    const recorder = createRecorder();
+    const room = new MatchRoom(setup, recorder.send);
+
+    const spectatorViews: SpectatorView[] = [];
+    room.watch((view) => spectatorViews.push(view));
+
+    const serialised = JSON.stringify(spectatorViews[0]!);
+    for (const kind of handOnlyKinds) {
+      expect(serialised).not.toContain(kind);
+    }
   });
 });

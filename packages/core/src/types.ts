@@ -565,3 +565,27 @@ export interface PlayerView {
     readonly options: number;
   };
 }
+
+/** Hidden-information-safe state projection for a read-only spectator. */
+export interface SpectatorView {
+  /** Opponent-style projection for every seat; no viewer holds a real hand. */
+  readonly players: Record<PlayerId, OpponentPlayerView>;
+  /** Player whose turn is active. */
+  readonly activePlayer: PlayerId;
+  /** Current turn phase. */
+  readonly phase: Phase;
+  /** One-based turn number. */
+  readonly turn: number;
+  /** Winner of the match, null while the game is live. */
+  readonly winner: PlayerId | null;
+  /** Public deterministic effect stack. */
+  readonly stack: readonly StackItem[];
+  /** Public active rules profile. */
+  readonly ruleset: Ruleset;
+  /** Pending choice metadata without hidden option effect bodies. */
+  readonly pendingChoice?: {
+    readonly player: PlayerId;
+    readonly source: CardInstanceId;
+    readonly options: number;
+  };
+}

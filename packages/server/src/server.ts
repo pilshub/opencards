@@ -36,6 +36,12 @@ const parseClientMessage = (text: string): ClientMessage | null => {
     }
     return { type: 'join', matchCode: record.matchCode, player: record.player as PlayerId };
   }
+  if (record.type === 'watch') {
+    if (typeof record.matchCode !== 'string') {
+      return null;
+    }
+    return { type: 'watch', matchCode: record.matchCode };
+  }
   if (record.type === 'command' && typeof record.command === 'object' && record.command !== null) {
     return { type: 'command', command: record.command as Command };
   }
@@ -70,6 +76,19 @@ export function startServer(port?: number): { close: () => void } {
   wss.on('connection', (socket) => {
     let matchCode: string | undefined;
     let player: PlayerId | undefined;
+    let spectatorHandle: { unwatch: () => void } | undefined;
+
+    const findOrCreateRoom = (code: string): MatchRoom => {
+      let room = rooms.get(code);
+      if (room === undefined) {
+        room = new MatchRoom(
+          createFoundrySetup(deriveSeedFromMatchCode(code), [p1, p2]),
+          makeSend(code),
+        );
+        rooms.set(code, room);
+      }
+      return room;
+    };
 
     socket.on('message', (data) => {
       const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
@@ -84,37 +103,43 @@ export function startServer(port?: number): { close: () => void } {
       }
 
       if (matchCode === undefined) {
-        if (msg.type !== 'join') {
-          sendError(socket, 'First message must be a join');
-          socket.close();
+        if (msg.type === 'join') {
+          matchCode = msg.matchCode;
+          player = msg.player;
+
+          let sockets = roomSockets.get(matchCode);
+          if (sockets === undefined) {
+            sockets = new Map();
+            roomSockets.set(matchCode, sockets);
+          }
+          const room = findOrCreateRoom(matchCode);
+
+          sockets.set(player, socket);
+
+          if (!room.join(player)) {
+            sockets.delete(player);
+            matchCode = undefined;
+            player = undefined;
+            sendError(socket, 'Seat unavailable');
+            socket.close();
+          }
           return;
         }
-        matchCode = msg.matchCode;
-        player = msg.player;
 
-        let sockets = roomSockets.get(matchCode);
-        if (sockets === undefined) {
-          sockets = new Map();
-          roomSockets.set(matchCode, sockets);
-        }
-        let room = rooms.get(matchCode);
-        if (room === undefined) {
-          room = new MatchRoom(
-            createFoundrySetup(deriveSeedFromMatchCode(matchCode), [p1, p2]),
-            makeSend(matchCode),
-          );
-          rooms.set(matchCode, room);
+        if (msg.type === 'watch') {
+          matchCode = msg.matchCode;
+          const room = findOrCreateRoom(matchCode);
+          spectatorHandle = room.watch((view) => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'spectatorView', view } satisfies ServerMessage));
+            }
+          });
+          socket.send(JSON.stringify({ type: 'spectating' } satisfies ServerMessage));
+          return;
         }
 
-        sockets.set(player, socket);
-
-        if (!room.join(player)) {
-          sockets.delete(player);
-          matchCode = undefined;
-          player = undefined;
-          sendError(socket, 'Seat unavailable');
-          socket.close();
-        }
+        sendError(socket, 'First message must be a join or watch');
+        socket.close();
         return;
       }
 
@@ -128,6 +153,9 @@ export function startServer(port?: number): { close: () => void } {
       if (matchCode !== undefined && player !== undefined) {
         rooms.get(matchCode)?.leave(player);
         roomSockets.get(matchCode)?.delete(player);
+      }
+      if (spectatorHandle !== undefined) {
+        spectatorHandle.unwatch();
       }
     });
   });

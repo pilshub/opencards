@@ -3,37 +3,48 @@ import type {
   PlayerId,
   PlayerView,
   SetupOpts,
+  SpectatorView,
   ValidationIssue,
-  ViewerHandle,
 } from '@opencards/core';
-import { applyCommand, legalCommands, startMatch, viewMatch } from '@opencards/core';
+import type { State } from '@opencards/core/internal';
+import {
+  apply,
+  createInitialState,
+  getLegalCommands,
+  getSpectatorView,
+  getView,
+} from '@opencards/core/internal';
 
 export type ServerMessage =
   | { type: 'joined'; player: PlayerId }
   | { type: 'view'; view: PlayerView; legal: Command[] }
   | { type: 'issues'; issues: ValidationIssue[] }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'spectating' }
+  | { type: 'spectatorView'; view: SpectatorView };
 
 export type ClientMessage =
   | { type: 'join'; matchCode: string; player: PlayerId }
-  | { type: 'command'; command: Command };
+  | { type: 'command'; command: Command }
+  | { type: 'watch'; matchCode: string };
 
 export interface RoomSend {
   (player: PlayerId, message: ServerMessage): void;
 }
 
 export class MatchRoom {
-  private readonly handles: Record<PlayerId, ViewerHandle>;
+  private state: State;
   private readonly connected = new Set<PlayerId>();
+  private readonly spectators = new Set<(view: SpectatorView) => void>();
   private readonly send: RoomSend;
 
   constructor(setup: SetupOpts, send: RoomSend) {
     this.send = send;
-    this.handles = startMatch(setup).handles;
+    this.state = createInitialState(setup);
   }
 
   join(player: PlayerId): boolean {
-    if (!(player in this.handles) || this.connected.has(player)) {
+    if (!(player in this.state.players) || this.connected.has(player)) {
       return false;
     }
     this.connected.add(player);
@@ -46,6 +57,16 @@ export class MatchRoom {
     this.connected.delete(player);
   }
 
+  watch(sendSpectator: (view: SpectatorView) => void): { unwatch: () => void } {
+    sendSpectator(getSpectatorView(this.state));
+    this.spectators.add(sendSpectator);
+    return {
+      unwatch: () => {
+        this.spectators.delete(sendSpectator);
+      },
+    };
+  }
+
   handleCommand(sender: PlayerId, command: Command): void {
     if (command.player !== sender) {
       this.send(sender, {
@@ -55,16 +76,22 @@ export class MatchRoom {
       return;
     }
 
-    const handle = this.handles[sender];
-    if (handle === undefined) {
+    if (!(sender in this.state.players)) {
       this.send(sender, { type: 'error', message: `Unknown player: ${sender}` });
       return;
     }
 
-    const result = applyCommand(handle, command);
+    const result = apply(this.state, command);
     if (result.issues.length > 0) {
       this.send(sender, { type: 'issues', issues: [...result.issues] });
       return;
+    }
+
+    this.state = result.state;
+
+    const spectatorView = getSpectatorView(this.state);
+    for (const sendSpectator of this.spectators) {
+      sendSpectator(spectatorView);
     }
 
     for (const player of this.connected) {
@@ -73,11 +100,10 @@ export class MatchRoom {
   }
 
   private pushState(player: PlayerId): void {
-    const handle = this.handles[player]!;
     this.send(player, {
       type: 'view',
-      view: viewMatch(handle),
-      legal: legalCommands(handle),
+      view: getView(this.state, player),
+      legal: getLegalCommands(this.state, player),
     });
   }
 }

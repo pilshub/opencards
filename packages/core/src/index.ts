@@ -35,6 +35,7 @@ export type {
   PlayerView,
   PendingChoice,
   Secret,
+  SpectatorView,
   UnitAttachment,
   RNGState,
   Ruleset,

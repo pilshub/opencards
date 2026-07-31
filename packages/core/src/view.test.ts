@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CardInstanceId, CardKind, PlayerId, PlayerView, State, Unit } from './types.js';
 import { seedRng } from './rng.js';
-import { getView } from './view.js';
+import { getSpectatorView, getView } from './view.js';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -165,5 +165,61 @@ describe('getView', () => {
     expect(view.opponents[p2]?.energy).toBe(4);
     expect(view.opponents[p2]?.drawnThisTurn).toBe(false);
     expect(view.winner).toBe(p2);
+  });
+});
+
+describe('getSpectatorView', () => {
+  it('masks every player hand to {masked: true} only - no id, no kind', () => {
+    const view = getSpectatorView(state);
+    const players = Object.values(view.players);
+
+    expect(players).toHaveLength(2);
+    for (const playerView of players) {
+      expect(playerView.hand.length).toBeGreaterThan(0);
+      for (const entry of playerView.hand) {
+        expect(Object.keys(entry).sort()).toEqual(['masked']);
+        expect(Object.hasOwn(entry, 'kind')).toBe(false);
+        expect(Object.hasOwn(entry, 'id')).toBe(false);
+      }
+    }
+  });
+
+  it('projects each player with exactly the same shape as an opponent view', () => {
+    const spectator = getSpectatorView(state);
+
+    expect(spectator.players[p2]).toEqual(getView(state, p1).opponents[p2]);
+    expect(spectator.players[p1]).toEqual(getView(state, p2).opponents[p1]);
+  });
+
+  it('projects top-level match fields identically to getView', () => {
+    const spectator = getSpectatorView(state);
+    const view = getView(state, p1);
+
+    expect(spectator.activePlayer).toBe(view.activePlayer);
+    expect(spectator.phase).toBe(view.phase);
+    expect(spectator.turn).toBe(view.turn);
+    expect(spectator.winner).toBe(view.winner);
+    expect(spectator.stack).toEqual(view.stack);
+    expect(spectator.ruleset).toEqual(view.ruleset);
+  });
+
+  it('does not leak any canonical hand or deck identities into the spectator view', () => {
+    const serialised = JSON.stringify(getSpectatorView(state));
+
+    // Hidden hand identities:
+    expect(serialised).not.toContain('p1-c00');
+    expect(serialised).not.toContain('ember-secret');
+    expect(serialised).not.toContain('p2-c00');
+    expect(serialised).not.toContain('p2-c01');
+    expect(serialised).not.toContain('frost-secret');
+    expect(serialised).not.toContain('frost-secret-2');
+
+    // Hidden deck identities:
+    expect(serialised).not.toContain('p1-c01');
+    expect(serialised).not.toContain('ember-deck-secret');
+    expect(serialised).not.toContain('p2-c02');
+    expect(serialised).not.toContain('p2-c03');
+    expect(serialised).not.toContain('frost-deck-secret');
+    expect(serialised).not.toContain('frost-deck-secret-2');
   });
 });

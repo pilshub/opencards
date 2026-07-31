@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { PlayerId } from '@opencards/core';
-import { legalCommands, startMatch, viewMatch } from '@opencards/core';
+import type { PlayerId, SpectatorView } from '@opencards/core';
+import { CLASSIC_RULESET, legalCommands, startMatch, viewMatch } from '@opencards/core';
 import { createFoundrySetup } from '@opencards/ember-foundry';
 import { OnlinePlay } from './OnlinePlay.js';
 
@@ -72,6 +72,45 @@ function buildView(): {
 } {
   const { handles } = startMatch(createFoundrySetup(42, [p1, p2]));
   return { view: viewMatch(handles[p1]!), legal: legalCommands(handles[p1]!) };
+}
+
+function buildSpectatorView(): SpectatorView {
+  return {
+    players: {
+      [p1]: {
+        id: p1,
+        hand: [{ masked: true }, { masked: true }],
+        deck: { count: 10 },
+        discard: [],
+        exile: [],
+        battlefield: [],
+        base: 20,
+        energy: 1,
+        maxEnergy: 1,
+        drawnThisTurn: false,
+        fatigueCount: 0,
+      },
+      [p2]: {
+        id: p2,
+        hand: [{ masked: true }],
+        deck: { count: 12 },
+        discard: [],
+        exile: [],
+        battlefield: [],
+        base: 18,
+        energy: 0,
+        maxEnergy: 1,
+        drawnThisTurn: false,
+        fatigueCount: 0,
+      },
+    },
+    activePlayer: p1,
+    phase: 'start',
+    turn: 1,
+    winner: null,
+    stack: [],
+    ruleset: CLASSIC_RULESET,
+  };
 }
 
 function fillMatchCode(value = 'room-1'): void {
@@ -234,5 +273,61 @@ describe('@opencards/app OnlinePlay', () => {
     act(() => socket.receive('not json'));
 
     expect(screen.getByTestId('online-error').textContent).toBe('Invalid server message');
+  });
+
+  it('sends a watch message instead of a join when the spectator mode is selected', () => {
+    render(<OnlinePlay />);
+
+    fireEvent.change(screen.getByTestId('online-server-url'), {
+      target: { value: 'ws://localhost:9999' },
+    });
+    fillMatchCode('abc');
+    fireEvent.click(screen.getByTestId('online-seat-spectator'));
+    fireEvent.click(screen.getByTestId('online-connect'));
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const socket = MockWebSocket.instances[0]!;
+    expect(socket.url).toBe('ws://localhost:9999');
+
+    act(() => socket.open());
+    expect(socket.sent).toHaveLength(1);
+    expect(JSON.parse(socket.sent[0]!)).toEqual({ type: 'watch', matchCode: 'abc' });
+  });
+
+  it('renders the read-only spectator board and no interactive controls when watching', () => {
+    render(<OnlinePlay />);
+    fillMatchCode();
+    fireEvent.click(screen.getByTestId('online-seat-spectator'));
+    const socket = connectAndOpen();
+
+    act(() => socket.receive({ type: 'spectating' }));
+    act(() => socket.receive({ type: 'spectatorView', view: buildSpectatorView() }));
+
+    expect(screen.getByTestId('spectator-board')).toBeTruthy();
+    expect(screen.queryByTestId('board')).toBeNull();
+    expect(screen.queryByTestId('draw-card')).toBeNull();
+    expect(screen.queryByTestId('end-phase')).toBeNull();
+    expect(screen.queryByTestId('end-turn')).toBeNull();
+    expect(screen.queryByTestId('attack-target-base')).toBeNull();
+    expect(screen.queryAllByTestId(/play-card-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/attack-with-/)).toHaveLength(0);
+  });
+
+  it('keeps the spectator board visible when an issues message arrives while watching', () => {
+    render(<OnlinePlay />);
+    fillMatchCode();
+    fireEvent.click(screen.getByTestId('online-seat-spectator'));
+    const socket = connectAndOpen();
+
+    act(() => socket.receive({ type: 'spectating' }));
+    act(() => socket.receive({ type: 'spectatorView', view: buildSpectatorView() }));
+    act(() =>
+      socket.receive({
+        type: 'issues',
+        issues: [{ code: 'OC-TEST', message: 'Not enough energy' }],
+      }),
+    );
+
+    expect(screen.getByTestId('spectator-board')).toBeTruthy();
   });
 });
