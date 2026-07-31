@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { apply, validateTarget } from './dispatcher.js';
+import { getLegalCommands } from './legal.js';
 import { seedRng } from './rng.js';
 import { FOUNDRY_RULESET } from './ruleset.js';
-import type { CardInstanceId, CardSpec, Player, PlayerId, State, Unit } from './types.js';
+import type { CardInstanceId, CardSpec, Command, Player, PlayerId, State, Unit } from './types.js';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -207,6 +208,155 @@ describe('Foundry keyword semantics', () => {
     });
     expect(result.state.players[p1]?.base).toBe(12);
     expect(result.events).toContainEqual({ type: 'healed', target: 'base', amount: 2, owner: p1 });
+  });
+
+  it('keeps a windfury unit ready after its first attack in a turn', () => {
+    const windfury = unit('wf', 'windfury', 2, 3, ['windfury']);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [windfury] },
+        [p2]: { ...player(p2), battlefield: [unit('target', 'target', 1, 6)] },
+      },
+    };
+
+    const first = apply(initial, {
+      type: 'attack',
+      player: p1,
+      attacker: windfury.id,
+      target: 'target' as CardInstanceId,
+    });
+
+    expect(first.issues).toEqual([]);
+    expect(first.state.players[p1]?.battlefield[0]?.exhausted).toBe(false);
+    expect(first.state.players[p1]?.battlefield[0]?.attacksThisTurn).toBe(1);
+  });
+
+  it('exhausts a windfury unit only after its second attack and rejects a third', () => {
+    const windfury = unit('wf', 'windfury', 2, 3, ['windfury']);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [windfury] },
+        [p2]: { ...player(p2), battlefield: [unit('target', 'target', 1, 6)] },
+      },
+    };
+    const attack = {
+      type: 'attack' as const,
+      player: p1,
+      attacker: windfury.id,
+      target: 'target' as CardInstanceId,
+    };
+
+    const first = apply(initial, attack);
+    const second = apply(first.state, attack);
+    expect(second.issues).toEqual([]);
+    expect(second.state.players[p1]?.battlefield[0]?.exhausted).toBe(true);
+    expect(second.state.players[p1]?.battlefield[0]?.attacksThisTurn).toBe(2);
+
+    const third = apply(second.state, attack);
+    expect(third.state).toBe(second.state);
+    expect(third.issues[0]?.code).toBe('UNIT_EXHAUSTED');
+  });
+
+  it('readies a windfury unit with reset attacksThisTurn at the start of its controller next turn', () => {
+    const windfury = unit('wf', 'windfury', 2, 3, ['windfury']);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [windfury] },
+        [p2]: { ...player(p2), battlefield: [unit('target', 'target', 1, 6)] },
+      },
+    };
+    const attack = {
+      type: 'attack' as const,
+      player: p1,
+      attacker: windfury.id,
+      target: 'target' as CardInstanceId,
+    };
+
+    const twice = apply(apply(initial, attack).state, attack);
+    expect(twice.state.players[p1]?.battlefield[0]?.exhausted).toBe(true);
+
+    const afterOpponentTurn = apply(twice.state, { type: 'endTurn', player: p1 });
+    const afterOwnTurn = apply(afterOpponentTurn.state, { type: 'endTurn', player: p2 });
+    const readied = afterOwnTurn.state.players[p1]?.battlefield[0];
+    expect(readied?.exhausted).toBe(false);
+    expect(readied?.attacksThisTurn).toBe(0);
+  });
+
+  it('exhausts a unit without windfury after a single attack', () => {
+    const attacker = unit('plain', 'plain', 2, 3);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [attacker] },
+        [p2]: { ...player(p2), battlefield: [unit('target', 'target', 1, 6)] },
+      },
+    };
+
+    const result = apply(initial, {
+      type: 'attack',
+      player: p1,
+      attacker: attacker.id,
+      target: 'target' as CardInstanceId,
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.state.players[p1]?.battlefield[0]?.exhausted).toBe(true);
+    expect(result.state.players[p1]?.battlefield[0]?.attacksThisTurn).toBe(1);
+  });
+
+  it('consumes stealth on a windfury unit first attack without exhausting it', () => {
+    const windfury = unit('wf', 'wf', 2, 3, ['windfury', 'stealth']);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [windfury] },
+        [p2]: { ...player(p2), battlefield: [unit('target', 'target', 1, 3)] },
+      },
+    };
+
+    const result = apply(initial, {
+      type: 'attack',
+      player: p1,
+      attacker: windfury.id,
+      target: 'base',
+    });
+
+    expect(result.issues).toEqual([]);
+    const after = result.state.players[p1]?.battlefield[0];
+    expect(after?.keywords).toEqual(['windfury']);
+    expect(after?.exhausted).toBe(false);
+    expect(after?.attacksThisTurn).toBe(1);
+  });
+
+  it('keeps a windfury attack legal after the first attack and drops it after the second', () => {
+    const windfury = unit('wf', 'windfury', 2, 3, ['windfury']);
+    const target = unit('target', 'target', 1, 6);
+    const initial: State = {
+      ...state(),
+      players: {
+        [p1]: { ...player(p1), battlefield: [windfury] },
+        [p2]: { ...player(p2), battlefield: [target] },
+      },
+    };
+    const attack = (): Command => ({
+      type: 'attack',
+      player: p1,
+      attacker: windfury.id,
+      target: target.id,
+    });
+
+    expect(getLegalCommands(initial, p1)).toContainEqual(attack());
+
+    const first = apply(initial, attack());
+    expect(first.issues).toEqual([]);
+    expect(getLegalCommands(first.state, p1)).toContainEqual(attack());
+
+    const second = apply(first.state, attack());
+    expect(second.issues).toEqual([]);
+    expect(getLegalCommands(second.state, p1)).not.toContainEqual(attack());
   });
 });
 

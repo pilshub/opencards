@@ -828,12 +828,13 @@ export function apply(state: State, command: Command): ApplyResult {
           if (unit.id !== attackerUnit.id) {
             return unit;
           }
+          const attacksThisTurn = (unit.attacksThisTurn ?? 0) + 1;
           const attacked: Unit = {
             ...unit,
-            exhausted: true,
+            exhausted: !(hasKeyword(unit, 'windfury') && attacksThisTurn < 2),
             ...(state.ruleset === undefined && unit.attacksThisTurn === undefined
               ? {}
-              : { attacksThisTurn: (unit.attacksThisTurn ?? 0) + 1 }),
+              : { attacksThisTurn }),
           };
           return hasKeyword(attacked, 'stealth') ? withoutKeyword(attacked, 'stealth') : attacked;
         }),
