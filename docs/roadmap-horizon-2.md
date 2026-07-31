@@ -18,6 +18,16 @@ This is a complete, well-engineered **local hot-seat card game engine + one full
 
 ---
 
+## Progress log (updated as horizons land)
+
+- **D1 (CI pipeline) — done.** `.github/workflows/ci.yml`, Ubuntu + Windows matrix running `verify:mvp` on every push/PR.
+- **Technical debt (`requiredTargetSelectors` dedupe) — done.** Single-sourced in `dispatcher.ts`, `legal.ts` imports it.
+- **A1 (server-authoritative match relay) — done.** `packages/server`: `MatchRoom` wraps `@opencards/core`'s public facade directly (zero duplicated rules logic), WebSocket transport, hidden-info-safe per-viewer broadcast, `command.player !== sender` impersonation guard, deterministic match-code→seed hash. Verified live end-to-end (real WebSocket connections, not just unit tests).
+- **A1 client (Online mode in the app) — in progress.** `OnlinePlay` component reusing `BoardView` as a controlled component, connects to `packages/server` over a real `WebSocket`.
+- Everything else in this document is still ahead.
+
+---
+
 ## Guiding principle (unchanged, now load-bearing)
 
 > `card db hash + decklist hash + setup + seed + ordered commands = final state hash`

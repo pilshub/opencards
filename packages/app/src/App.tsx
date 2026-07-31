@@ -43,6 +43,7 @@ import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
 import { DeckEditor } from './components/DeckEditor.js';
 import { FormatEditor } from './components/FormatEditor.js';
+import { OnlinePlay } from './components/OnlinePlay.js';
 
 // ── Built-in card definitions ───────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ function mergeCardDefinitions(customCards: readonly CardDefinition[]): CardDefin
  * Build a kind→definition map for the VIEWER's own cards only.
  * Builtins are always present; custom cards override on kind clash when useCustom is true.
  */
-function buildCardRegistry(useCustom: boolean): Map<string, CardDefinition> {
+export function buildCardRegistry(useCustom: boolean): Map<string, CardDefinition> {
   const registry = new Map<string, CardDefinition>(Object.entries(BUILTIN_DEFINITIONS));
   if (useCustom) {
     for (const def of loadCustomCards()) {
@@ -120,7 +121,7 @@ function buildCardRegistry(useCustom: boolean): Map<string, CardDefinition> {
   return registry;
 }
 
-type AppView = 'play' | 'deck' | 'create' | 'rules';
+type AppView = 'play' | 'deck' | 'create' | 'rules' | 'online';
 
 const p1 = 'p1' as PlayerId;
 const p2 = 'p2' as PlayerId;
@@ -162,7 +163,7 @@ type PlayCardCommand = Extract<Command, { readonly type: 'playCard' }>;
 type AttackCommand = Extract<Command, { readonly type: 'attack' }>;
 type ChooseTargetCommand = Extract<Command, { readonly type: 'chooseTarget' }>;
 type ResolveStackCommand = Extract<Command, { readonly type: 'resolveStack' }>;
-type TargetCommand = AttackCommand | ChooseTargetCommand;
+export type TargetCommand = AttackCommand | ChooseTargetCommand;
 
 type TargetCommandDraft =
   | {
@@ -176,7 +177,7 @@ type TargetCommandDraft =
       readonly source: CardInstanceId;
     };
 
-type TargetingState =
+export type TargetingState =
   | { readonly status: 'idle' }
   | { readonly status: 'awaitingTarget'; readonly draft: TargetCommandDraft }
   | { readonly status: 'confirming'; readonly command: TargetCommand };
@@ -625,6 +626,18 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                 >
                   Rules
                 </button>
+                <button
+                  className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                    appView === 'online'
+                      ? 'bg-[color:var(--oc-accent)] text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  data-testid="nav-online"
+                  type="button"
+                  onClick={() => setAppView('online')}
+                >
+                  Online
+                </button>
               </nav>
               <div
                 className="max-w-full overflow-hidden rounded border border-[color:var(--oc-border)] bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300"
@@ -646,6 +659,8 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
           ) : null}
 
           {appView === 'rules' ? <RulesView /> : null}
+
+          {appView === 'online' ? <OnlinePlay /> : null}
 
           {appView === 'play' ? (
             <>
@@ -1504,7 +1519,7 @@ function StackPanel({
   );
 }
 
-function BoardView({
+export function BoardView({
   viewer,
   view,
   activePlayer,

@@ -1750,3 +1750,21 @@ describe('@opencards/app custom game integration', () => {
     );
   });
 });
+
+describe('@opencards/app Online navigation', () => {
+  it('nav-online exists and switches appView to show the OnlinePlay connection form', () => {
+    render(createElement(App));
+
+    expect(screen.getByTestId('nav-online')).toBeTruthy();
+    expect(screen.queryByTestId('online-server-url')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-online'));
+
+    expect(screen.getByTestId('online-server-url')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Game' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-play'));
+    expect(screen.getByRole('button', { name: 'New Game' })).toBeTruthy();
+    expect(screen.queryByTestId('online-server-url')).toBeNull();
+  });
+});
