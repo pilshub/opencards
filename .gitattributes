@@ -1,0 +1,19 @@
+# Normalize line endings to LF in the repo; Windows checkouts stay usable.
+* text=auto eol=lf
+
+# Windows shell/batch scripts keep CRLF for compatibility.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets are never text-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.wasm binary
+*.pck binary
