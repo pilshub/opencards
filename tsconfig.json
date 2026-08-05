@@ -27,6 +27,9 @@
     },
     {
       "path": "./games/quick-sparks"
+    },
+    {
+      "path": "./games/aoe-ccg"
     }
   ]
 }

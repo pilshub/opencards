@@ -16,7 +16,8 @@
     "packages/ai",
     "packages/server",
     "games/ember-foundry",
-    "games/quick-sparks"
+    "games/quick-sparks",
+    "games/aoe-ccg"
   ],
   "scripts": {
     "typecheck": "tsc -b",
