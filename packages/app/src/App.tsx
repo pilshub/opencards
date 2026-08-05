@@ -577,8 +577,8 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                 Build any card game. Play the reference set.
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <nav className="flex rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <nav className="flex flex-wrap rounded border border-[color:var(--oc-border)] bg-zinc-900 p-1">
                 <button
                   className={`rounded px-3 py-1.5 text-sm font-semibold ${
                     appView === 'play'
