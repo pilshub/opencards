@@ -23,6 +23,7 @@
     "@opencards/ai": "*",
     "@opencards/core": "*",
     "@opencards/ember-foundry": "*",
+    "@opencards/aoe-ccg": "*",
     "@opencards/effects": "*",
     "@opencards/schema": "*",
     "framer-motion": "^11.11.0"

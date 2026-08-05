@@ -38,6 +38,7 @@ import {
   type FoundryTutorial,
   type FoundryTutorialId,
 } from '@opencards/ember-foundry';
+import { createAoeCcgSetup } from '@opencards/aoe-ccg';
 import { chooseBotCommand } from '@opencards/ai';
 import { Card } from './components/Card.js';
 import { CardCreator } from './components/CardCreator.js';
@@ -303,6 +304,25 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
     setTutorial(null);
     setGuidedTutorial(false);
     setGuidedIntroComplete(false);
+  }
+
+  function startAoeGame(): void {
+    const setupOpts = createAoeCcgSetup(seed, players);
+    const started = startMatch(setupOpts);
+    setViewer(p1);
+    setMatch(project(started.handles, seed, setupOpts, []));
+    setErrors({});
+    setReplay({ status: 'idle' });
+    setPasteValidation(null);
+    setExportedEnvelope(null);
+    setExportMeta(null);
+    setCopyStatus('idle');
+    setPasteStatus('idle');
+    setTargeting({ status: 'idle' });
+    setTutorial(null);
+    setGuidedTutorial(false);
+    setGuidedIntroComplete(false);
+    setBotEnabled(true);
   }
 
   function startTutorial(nextTutorial: FoundryTutorial): void {
@@ -737,6 +757,14 @@ export default function App({ defaultSetup, matchLogLimit }: AppProps = {}): JSX
                   onClick={startNewGame}
                 >
                   Nueva partida
+                </button>
+                <button
+                  className="rounded border border-orange-300/60 bg-orange-400/10 px-4 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-400/20"
+                  data-testid="start-aoe-game"
+                  type="button"
+                  onClick={startAoeGame}
+                >
+                  Jugar AoE CCG ⚔️
                 </button>
                 <button
                   className="rounded border border-[color:var(--oc-border)] px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
