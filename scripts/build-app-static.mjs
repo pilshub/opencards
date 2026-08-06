@@ -17,6 +17,7 @@ const modules = [
   ['schema', path.join(rootDir, 'packages', 'schema', 'src')],
   ['core', path.join(rootDir, 'packages', 'core', 'src')],
   ['ember-foundry', path.join(rootDir, 'games', 'ember-foundry', 'src')],
+  ['aoe-ccg', path.join(rootDir, 'games', 'aoe-ccg', 'src')],
   ['app', path.join(appDir, 'src')],
 ];
 
@@ -232,6 +233,7 @@ async function writeHtml() {
           "@opencards/core": "/modules/core/index.js",
           "@opencards/ai": "/modules/ai/index.js",
           "@opencards/ember-foundry": "/modules/ember-foundry/index.js",
+          "@opencards/aoe-ccg": "/modules/aoe-ccg/index.js",
           "@opencards/effects": "/modules/effects/index.js",
           "@opencards/schema": "/modules/schema/index.js",
           "framer-motion": "/vendor/framer-motion-wrapper.js",
